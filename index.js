@@ -18,6 +18,8 @@ const EXT_ID = 'dandeleon-multiverse';
 const SCENE_PROMPT_ID = 'dandeleon_multiverse_scene';
 const SUMMARY_PROMPT_ID = 'dandeleon_multiverse_summary';
 const TIMELINE_PROMPT_ID = 'dandeleon_multiverse_timeline';
+const PREMISE_PROMPT_ID = 'dandeleon_multiverse_premise';
+const OFFSCREEN_PROMPT_ID = 'dandeleon_multiverse_offscreen';
 const STORAGE_KEY = 'dandeleon_multiverse_settings';
 const CHAT_META_KEY = 'dandeleon_multiverse';
 
@@ -42,6 +44,7 @@ const DEFAULT_SETTINGS = {
     apiEndpoint: 'https://openrouter.ai/api/v1/chat/completions',
     apiKey: '',
     apiModel: 'moonshotai/kimi-k2',
+    prompts: { dm: '', worldkeeper: '', summary: '' },
     verseLibrary: {}
 };
 
@@ -49,6 +52,9 @@ function defaultVerse(id, name) {
     return {
         id,
         name,
+        // Universe premise (standing setup, editable)
+        premise: '',
+        premiseDepth: 6,
         // CANON TIMELINE (deep)
         timeline: '',
         timelineDepth: 20,
@@ -62,6 +68,10 @@ function defaultVerse(id, name) {
         scene: { weather: '', time: '', mood: '', location: '', characters: [], threads: [], currently: '' },
         sceneDepth: 3,
         prose: '',
+        // Autonomous background characters
+        autonomousChars: false,
+        charCadence: 3,
+        turnsSinceChars: 0,
         // World
         world: { locations: [] },
         options: { locations: [], people: [] },
@@ -251,6 +261,16 @@ Output STRICT JSON ONLY:
   "timeline": "ONLY when UPDATE_TIMELINE is yes, else empty string. Return the FULL updated canon timeline text. PRESERVE the user's existing lines and ESPECIALLY everything after the {curly-brace bookmark} (their planned future) — never delete or spoil it. Add 1-3 short lines for what has actually happened since the bookmark, then move the {curly braces} onto the new current line. One line per beat: '- <when> - <what>'."
 }`;
 
+const WK_SYSTEM_DEFAULT = `You are the WORLD-KEEPER for this roleplay universe. Help the user build and manage it: canon, cast, locations/map, tone, secret future beats. Be concise, concrete, and collaborative. When the user hands you canon or asks you to plan, integrate it and reflect it back cleanly.`;
+
+const SUMMARY_SYSTEM_DEFAULT = `You compress a roleplay history into concise background prose for the scene partner. Write in SECOND PERSON ("You..."). A tight paragraph or two. Only established/past facts. Output the prose only.`;
+
+function getPrompt(key) {
+    const o = settings.prompts && settings.prompts[key];
+    if (o && o.trim()) return o.trim();
+    return key === 'dm' ? DM_SYSTEM : key === 'worldkeeper' ? WK_SYSTEM_DEFAULT : SUMMARY_SYSTEM_DEFAULT;
+}
+
 function getRecentMessages(depth) {
     try {
         const ctx = getContext();
@@ -268,6 +288,9 @@ function getRecentMessages(depth) {
 function buildDMUserPrompt(v, recent, updateTimeline) {
     const cast = v.scene.characters.map(c => `${c.name}${c.note ? ` (${c.note})` : ''}`).join(', ') || '(none set)';
     return `VERSE: ${v.name}
+
+UNIVERSE PREMISE:
+${v.premise || '(none)'}
 
 CANON TIMELINE (the {curly braces} mark the current moment; lines after are planned future):
 ${v.timeline || '(empty)'}
@@ -303,7 +326,7 @@ async function runDM() {
     setProcessing(true);
     try {
         const raw = await callExternalAPI(
-            [{ role: 'system', content: DM_SYSTEM }, { role: 'user', content: buildDMUserPrompt(v, recent, updateTimeline) }],
+            [{ role: 'system', content: getPrompt('dm') }, { role: 'user', content: buildDMUserPrompt(v, recent, updateTimeline) }],
             { maxTokens: 1500, temperature: 0.8 }
         );
         const res = extractJSON(raw);
@@ -315,7 +338,10 @@ async function runDM() {
             v.scene.time = s.time ?? v.scene.time;
             v.scene.mood = s.mood ?? v.scene.mood;
             v.scene.location = s.location ?? v.scene.location;
-            if (Array.isArray(s.characters)) v.scene.characters = s.characters.filter(c => c && c.name);
+            if (Array.isArray(s.characters)) v.scene.characters = s.characters.filter(c => c && c.name).map(c => {
+                const prev = v.scene.characters.find(p => p.name === c.name);
+                return { name: c.name, note: c.note || '', auto: prev?.auto || '' };
+            });
             if (Array.isArray(s.threads)) v.scene.threads = s.threads.filter(Boolean);
         }
         if (typeof res.currently === 'string' && res.currently.trim()) v.scene.currently = res.currently.trim();
@@ -353,8 +379,8 @@ async function regenerateSummary() {
     setProcessing(true);
     try {
         const raw = await callExternalAPI([
-            { role: 'system', content: 'You compress a roleplay history into concise background prose for the scene partner. Write in SECOND PERSON ("You..."). A tight paragraph or two. Only established/past facts. Output the prose only.' },
-            { role: 'user', content: `VERSE: ${v.name}\n\nEVENTS TO SUMMARIZE (older beats; the most recent ${v.summaryUpToPast} are intentionally excluded):\n${toSummarize || '(nothing yet)'}\n\nWrite the condensed second-person background.` }
+            { role: 'system', content: getPrompt('summary') },
+            { role: 'user', content: `VERSE: ${v.name}\nPREMISE: ${v.premise || '(none)'}\n\nEVENTS TO SUMMARIZE (older beats; the most recent ${v.summaryUpToPast} are intentionally excluded):\n${toSummarize || '(nothing yet)'}\n\nWrite the condensed second-person background.` }
         ], { maxTokens: 700, temperature: 0.4 });
         if (raw && raw.trim()) {
             v.summary = raw.trim();
@@ -422,6 +448,8 @@ function clearInjection() {
     setExtensionPrompt(SCENE_PROMPT_ID, '', extension_prompt_types.IN_CHAT, 3);
     setExtensionPrompt(SUMMARY_PROMPT_ID, '', extension_prompt_types.IN_CHAT, 10);
     setExtensionPrompt(TIMELINE_PROMPT_ID, '', extension_prompt_types.IN_CHAT, 20);
+    setExtensionPrompt(PREMISE_PROMPT_ID, '', extension_prompt_types.IN_CHAT, 6);
+    setExtensionPrompt(OFFSCREEN_PROMPT_ID, '', extension_prompt_types.IN_CHAT, 3);
 }
 
 function injectVerse() {
@@ -433,10 +461,15 @@ function injectVerse() {
     const summary = v.summary?.trim() ? `<canon_summary>\n${v.summary.trim()}\n</canon_summary>` : '';
     const tl = timelineUpToBookmark(v.timeline);
     const timeline = tl ? `<canon_timeline>\n${tl}\n</canon_timeline>` : '';
+    const premise = v.premise?.trim() ? `<universe>\n${v.premise.trim()}\n</universe>` : '';
+    const off = v.scene.characters.filter(c => c.auto && c.auto.trim());
+    const offscreen = off.length ? `<offscreen>\n${off.map(c => `${c.name}: ${c.auto.trim()}`).join('\n')}\n</offscreen>` : '';
 
     setExtensionPrompt(SCENE_PROMPT_ID, scene, extension_prompt_types.IN_CHAT, v.sceneDepth || 3);
     setExtensionPrompt(SUMMARY_PROMPT_ID, summary, extension_prompt_types.IN_CHAT, v.summaryDepth || 10);
     setExtensionPrompt(TIMELINE_PROMPT_ID, timeline, extension_prompt_types.IN_CHAT, v.timelineDepth || 20);
+    setExtensionPrompt(PREMISE_PROMPT_ID, premise, extension_prompt_types.IN_CHAT, v.premiseDepth || 6);
+    setExtensionPrompt(OFFSCREEN_PROMPT_ID, offscreen, extension_prompt_types.IN_CHAT, v.sceneDepth || 3);
 }
 
 // =============================================================================
@@ -449,8 +482,10 @@ async function chatWithDM(message) {
     v.dmChat.push({ role: 'user', content: message.trim() });
     saveSettings();
     renderDMChat();
-    const sys = `You are the WORLD-KEEPER for the universe "${v.name}". Help the user build and manage it: canon, cast, locations/map, tone, future beats. Concise and collaborative.
+    const sys = `${getPrompt('worldkeeper')}
 
+UNIVERSE: "${v.name}"
+PREMISE: ${v.premise || '(none)'}
 CANON TIMELINE:\n${v.timeline || '(empty)'}\n\nSCENE: ${v.scene.location || '?'} — ${v.scene.weather || '?'}; present: ${v.scene.characters.map(c => c.name).join(', ') || 'no one'}.`;
     const history = v.dmChat.slice(-12).map(m => ({ role: m.role, content: m.content }));
     setProcessing(true);
@@ -461,14 +496,50 @@ CANON TIMELINE:\n${v.timeline || '(empty)'}\n\nSCENE: ${v.scene.location || '?'}
 }
 
 // =============================================================================
+// Autonomous background characters (separate API call)
+// =============================================================================
+
+async function simulateBackground() {
+    const v = getActiveVerse();
+    if (!v || !v.autonomousChars) return;
+    const recent = getRecentMessages(settings.messageDepth).join(' ').toLowerCase();
+    // Only re-roll characters NOT mentioned in the RP — mentioned ones are the GM's job.
+    const targets = v.scene.characters.filter(c => c.name && !recent.includes(c.name.toLowerCase()));
+    if (!targets.length) { v.turnsSinceChars = 0; return; }
+    setProcessing(true);
+    try {
+        const raw = await callExternalAPI([
+            { role: 'system', content: `You simulate what BACKGROUND characters are autonomously doing right now, off-screen, consistent with the world and premise. Return ONLY a JSON array: [{"name":"","auto":"one short line of what they're doing/saying"}]. No prose.` },
+            { role: 'user', content: `VERSE: ${v.name}\nPREMISE: ${v.premise || '(none)'}\nSCENE: ${v.scene.location || '?'}, ${v.scene.weather || '?'}\nBACKGROUND CHARACTERS: ${targets.map(c => c.name).join(', ')}\n\nWhat is each of them doing right now?` }
+        ], { maxTokens: 400, temperature: 0.8 });
+        let arr = extractJSON(raw);
+        if (!Array.isArray(arr)) { const m = (raw || '').match(/\[[\s\S]*\]/); if (m) { try { arr = JSON.parse(m[0]); } catch (e) { /* */ } } }
+        if (Array.isArray(arr)) {
+            for (const o of arr) {
+                if (!o || !o.name) continue;
+                const c = v.scene.characters.find(x => x.name.toLowerCase() === String(o.name).toLowerCase());
+                if (c) c.auto = o.auto || c.auto;
+            }
+            v.turnsSinceChars = 0;
+            saveSettings(); injectVerse(); updateSceneDisplay();
+        }
+    } finally { setProcessing(false); }
+}
+
+// =============================================================================
 // Events
 // =============================================================================
 
 async function onMessageSent() {
     if (!settings.enabled) return;
-    if (!getActiveVerse()) return;
+    const v = getActiveVerse();
+    if (!v) return;
     if (settings.autoRun && !isRunning) await runDM();
     else injectVerse();
+    if (v.autonomousChars) {
+        v.turnsSinceChars = (v.turnsSinceChars || 0) + 1;
+        if (v.turnsSinceChars >= (v.charCadence || 3)) await simulateBackground();
+    }
 }
 
 function onGenerationStarted(type, data, dryRun) {
@@ -552,6 +623,14 @@ function injectPanelUI() {
             </div>
 
             <div id="dmv-active" style="display:none;">
+                <!-- Universe premise -->
+                <div class="dmv-section dmv-box">
+                    <div class="dmv-box-title">UNIVERSE PREMISE</div>
+                    <div class="dmv-inline-ctrls"><span>depth <input type="number" id="dmv-premise-depth" class="dmv-num" min="0" max="100"></span></div>
+                    <div class="dmv-note">Establish the verse — setting, who the player and Caleb are, the secrets they keep. Standing context injected to Caleb.</div>
+                    <textarea id="dmv-premise" rows="3" placeholder="50's London, the Blitz. Both the player and Caleb are starving orphans.&#10;— or —&#10;YYH reincarnation AU: player reborn as Keiko, Caleb is Kurama; neither reveals they're reincarnated."></textarea>
+                </div>
+
                 <!-- Live scene -->
                 <div class="dmv-section">
                     <div id="dmv-scene-chips" class="dmv-chips"></div>
@@ -564,6 +643,13 @@ function injectPanelUI() {
                     <label>Suggest new…</label>
                     <div class="dmv-btn-row"><button class="dmv-btn" id="dmv-suggest-loc">✨ Locations</button><button class="dmv-btn" id="dmv-suggest-ppl">✨ People</button></div>
                     <div id="dmv-options"></div>
+                </div>
+
+                <!-- Autonomous background characters -->
+                <div class="dmv-section">
+                    <label class="dmv-check"><input type="checkbox" id="dmv-autonomous"> Autonomous background characters</label>
+                    <div class="dmv-inline-ctrls"><span>simulate every <input type="number" id="dmv-char-cadence" class="dmv-num" min="1" max="50"> turns</span><button class="dmv-btn dmv-btn-icon" id="dmv-sim-bg" title="Simulate now">🎲</button></div>
+                    <div class="dmv-note">Off-screen characters keep a static action until they're mentioned in the RP — then the GM voices them live.</div>
                 </div>
 
                 <!-- CANON TIMELINE -->
@@ -592,6 +678,19 @@ function injectPanelUI() {
                 <div class="dmv-section">
                     <label>Map — known locations (one per line)</label>
                     <textarea id="dmv-locations" rows="3" placeholder="Great Hall&#10;Slytherin Common Room"></textarea>
+                </div>
+
+                <!-- Edit prompts (advanced) -->
+                <div class="dmv-section">
+                    <label class="dmv-collapse" id="dmv-prompts-toggle">⚙ Edit prompts (advanced)</label>
+                    <div id="dmv-prompts" class="dmv-prompts">
+                        <div class="dmv-sub2">DM / world engine</div>
+                        <textarea id="dmv-prompt-dm" rows="4" placeholder="(blank = built-in default)"></textarea>
+                        <div class="dmv-sub2">World-keeper chat</div>
+                        <textarea id="dmv-prompt-wk" rows="3" placeholder="(blank = built-in default)"></textarea>
+                        <div class="dmv-sub2">Summary instruction</div>
+                        <textarea id="dmv-prompt-sum" rows="2" placeholder="(blank = built-in default)"></textarea>
+                    </div>
                 </div>
 
                 <!-- World-keeper chat -->
@@ -627,6 +726,17 @@ function bindPanelEvents() {
     bind('dmv-regen-summary', 'click', () => regenerateSummary());
     bind('dmv-suggest-loc', 'click', () => suggestOptions('locations'));
     bind('dmv-suggest-ppl', 'click', () => suggestOptions('people'));
+    bind('dmv-sim-bg', 'click', () => simulateBackground());
+
+    bind('dmv-premise', 'input', debounce(() => { const v = getActiveVerse(); if (v) { v.premise = val('dmv-premise'); saveSettings(); injectVerse(); } }, 600));
+    bind('dmv-premise-depth', 'change', () => { const v = getActiveVerse(); if (v) { v.premiseDepth = parseInt(val('dmv-premise-depth')) || 6; saveSettings(); injectVerse(); } });
+    bind('dmv-autonomous', 'change', e => { const v = getActiveVerse(); if (v) { v.autonomousChars = e.target.checked; saveSettings(); } });
+    bind('dmv-char-cadence', 'change', () => { const v = getActiveVerse(); if (v) { v.charCadence = parseInt(val('dmv-char-cadence')) || 3; saveSettings(); } });
+
+    bind('dmv-prompts-toggle', 'click', () => document.getElementById('dmv-prompts')?.classList.toggle('dmv-visible'));
+    bind('dmv-prompt-dm', 'input', debounce(() => { settings.prompts.dm = val('dmv-prompt-dm'); saveSettings(); }, 600));
+    bind('dmv-prompt-wk', 'input', debounce(() => { settings.prompts.worldkeeper = val('dmv-prompt-wk'); saveSettings(); }, 600));
+    bind('dmv-prompt-sum', 'input', debounce(() => { settings.prompts.summary = val('dmv-prompt-sum'); saveSettings(); }, 600));
 
     bind('dmv-timeline', 'input', debounce(() => { const v = getActiveVerse(); if (v) { v.timeline = val('dmv-timeline'); saveSettings(); injectVerse(); } }, 600));
     bind('dmv-summary', 'input', debounce(() => { const v = getActiveVerse(); if (v) { v.summary = val('dmv-summary'); saveSettings(); injectVerse(); } }, 600));
@@ -731,6 +841,13 @@ function updateUI() {
         setVal('dmv-tl-cadence', v.timelineCadence);
         setVal('dmv-sum-past', v.summaryUpToPast);
         setVal('dmv-sum-depth', v.summaryDepth);
+        setVal('dmv-premise', v.premise);
+        setVal('dmv-premise-depth', v.premiseDepth);
+        setVal('dmv-char-cadence', v.charCadence);
+        const autoCb = document.getElementById('dmv-autonomous'); if (autoCb) autoCb.checked = !!v.autonomousChars;
+        setVal('dmv-prompt-dm', settings.prompts?.dm || '');
+        setVal('dmv-prompt-wk', settings.prompts?.worldkeeper || '');
+        setVal('dmv-prompt-sum', settings.prompts?.summary || '');
         updateSceneDisplay();
         updateProseDisplay();
         renderOptions();

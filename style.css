@@ -201,4 +201,15 @@
 
 .dmv-empty { font-size: 12px; opacity: 0.5; padding: 8px; text-align: center; }
 
+/* Panel checkbox row */
+#dmv-panel .dmv-check { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
+#dmv-panel .dmv-check input[type="checkbox"] { width: auto !important; }
+
+/* Collapsible "edit prompts" */
+.dmv-collapse { cursor: pointer; font-size: 12px; font-weight: 700; color: var(--dmv-accent); text-transform: uppercase; letter-spacing: 0.03em; }
+.dmv-prompts { display: none; flex-direction: column; gap: 6px; margin-top: 6px; }
+.dmv-prompts.dmv-visible { display: flex; }
+.dmv-sub2 { font-size: 11px; opacity: 0.7; }
+#dmv-prompt-dm, #dmv-prompt-wk, #dmv-prompt-sum { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+
 @media (min-width: 1001px) { #dmv-fab { bottom: 80px; } }
