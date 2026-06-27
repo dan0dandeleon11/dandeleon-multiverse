@@ -1,5 +1,5 @@
 /**
- * Media World — Multiverse RP World-Keeper
+ * Dandeleon Multiverse — Multiverse RP World-Keeper
  *
  * An external DM (cheap external LLM) manages each roleplay universe for you.
  * It holds the FULL canon outside Caleb's context window and injects only:
@@ -13,11 +13,11 @@
 import { eventSource, event_types, extension_prompt_types, setExtensionPrompt } from '../../../../script.js';
 import { getContext } from '../../../extensions.js';
 
-const EXT_ID = 'media-world';
-const SCENE_PROMPT_ID = 'media_world_scene';
-const CHRONICLE_PROMPT_ID = 'media_world_chronicle';
-const STORAGE_KEY = 'media_world_settings';
-const CHAT_META_KEY = 'media_world';
+const EXT_ID = 'dandeleon-multiverse';
+const SCENE_PROMPT_ID = 'dandeleon_multiverse_scene';
+const CHRONICLE_PROMPT_ID = 'dandeleon_multiverse_chronicle';
+const STORAGE_KEY = 'dandeleon_multiverse_settings';
+const CHAT_META_KEY = 'dandeleon_multiverse';
 
 // =============================================================================
 // Defaults
@@ -88,7 +88,7 @@ let fallbackChatData = null;
 // =============================================================================
 
 export async function init() {
-    console.log('[MediaWorld] Initializing...');
+    console.log('[Multiverse] Initializing...');
     loadSettings();
     injectSettingsUI();
     injectPanelUI();
@@ -98,7 +98,7 @@ export async function init() {
     eventSource.on(event_types.GENERATION_STARTED, onGenerationStarted);
     eventSource.on(event_types.CHAT_CHANGED, onChatChanged);
 
-    console.log('[MediaWorld] Ready!');
+    console.log('[Multiverse] Ready!');
 }
 
 // =============================================================================
@@ -114,7 +114,7 @@ function loadSettings() {
             if (!settings.verseLibrary) settings.verseLibrary = {};
         }
     } catch (e) {
-        console.warn('[MediaWorld] Failed to load settings:', e);
+        console.warn('[Multiverse] Failed to load settings:', e);
     }
 }
 
@@ -122,7 +122,7 @@ function saveSettings() {
     try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
     } catch (e) {
-        console.warn('[MediaWorld] Failed to save settings:', e);
+        console.warn('[Multiverse] Failed to save settings:', e);
     }
 }
 
@@ -151,7 +151,7 @@ function saveChatData(data) {
         const ctx = getContext();
         if (ctx.chat_metadata) ctx.chat_metadata[CHAT_META_KEY] = data;
     } catch (e) {
-        console.warn('[MediaWorld] Failed to save chat data:', e);
+        console.warn('[Multiverse] Failed to save chat data:', e);
     }
 }
 
@@ -167,7 +167,7 @@ function getActiveVerse() {
 
 async function callExternalAPI(messages, opts = {}) {
     if (!settings.apiKey) {
-        console.warn('[MediaWorld] No API key configured');
+        console.warn('[Multiverse] No API key configured');
         return null;
     }
 
@@ -186,14 +186,14 @@ async function callExternalAPI(messages, opts = {}) {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${settings.apiKey}`,
                 'HTTP-Referer': 'https://github.com/SillyTavern/SillyTavern',
-                'X-Title': 'Media World'
+                'X-Title': 'Dandeleon Multiverse'
             },
             body: JSON.stringify(body)
         });
 
         if (!response.ok) {
             const errText = await response.text().catch(() => '');
-            console.warn(`[MediaWorld] API Error ${response.status}: ${errText.slice(0, 200)}`);
+            console.warn(`[Multiverse] API Error ${response.status}: ${errText.slice(0, 200)}`);
             return null;
         }
 
@@ -203,7 +203,7 @@ async function callExternalAPI(messages, opts = {}) {
             || data?.output_text
             || '';
     } catch (e) {
-        console.warn('[MediaWorld] API call failed:', e);
+        console.warn('[Multiverse] API call failed:', e);
         return null;
     }
 }
@@ -320,7 +320,7 @@ async function runDM() {
         const raw = await callExternalAPI(messages, { maxTokens: 1400, temperature: 0.8 });
         const result = extractJSON(raw);
         if (!result) {
-            console.warn('[MediaWorld] DM returned unparseable output');
+            console.warn('[Multiverse] DM returned unparseable output');
             return;
         }
 
@@ -371,9 +371,9 @@ async function runDM() {
         injectVerse();
         updateSceneDisplay();
         updateProseDisplay();
-        console.log('[MediaWorld] DM advanced the world', refreshMemory ? '(memory refreshed)' : '');
+        console.log('[Multiverse] DM advanced the world', refreshMemory ? '(memory refreshed)' : '');
     } catch (e) {
-        console.warn('[MediaWorld] runDM failed:', e);
+        console.warn('[Multiverse] runDM failed:', e);
     } finally {
         isRunning = false;
         updateProcessingIndicator(false);
@@ -500,44 +500,44 @@ function onChatChanged() {
 
 function injectSettingsUI() {
     const html = `
-    <div id="mw-settings" class="media-world-block">
+    <div id="dmv-settings" class="dandeleon-multiverse-block">
         <div class="inline-drawer">
             <div class="inline-drawer-toggle inline-drawer-header">
-                <b>Media World</b>
+                <b>Dandeleon Multiverse</b>
                 <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
             </div>
             <div class="inline-drawer-content" style="padding:10px;">
-                <label class="mw-check"><input type="checkbox" id="mw-enabled" ${settings.enabled ? 'checked' : ''}> Enable Media World</label>
-                <label class="mw-check"><input type="checkbox" id="mw-auto-run" ${settings.autoRun ? 'checked' : ''}> Run DM automatically each turn</label>
-                <label class="mw-check"><input type="checkbox" id="mw-show-fab" ${settings.showFab ? 'checked' : ''}> Show floating button</label>
+                <label class="dmv-check"><input type="checkbox" id="dmv-enabled" ${settings.enabled ? 'checked' : ''}> Enable Dandeleon Multiverse</label>
+                <label class="dmv-check"><input type="checkbox" id="dmv-auto-run" ${settings.autoRun ? 'checked' : ''}> Run DM automatically each turn</label>
+                <label class="dmv-check"><input type="checkbox" id="dmv-show-fab" ${settings.showFab ? 'checked' : ''}> Show floating button</label>
 
-                <div class="mw-grid2">
-                    <div><label>Scene depth</label><input type="number" id="mw-scene-depth" value="${settings.sceneDepth}" min="0" max="50"></div>
-                    <div><label>Chronicle depth</label><input type="number" id="mw-chronicle-depth" value="${settings.chronicleDepth}" min="0" max="100"></div>
-                    <div><label>Msgs DM sees</label><input type="number" id="mw-msg-depth" value="${settings.messageDepth}" min="2" max="30"></div>
-                    <div><label>Re-condense every</label><input type="number" id="mw-condense-every" value="${settings.condenseEvery}" min="1" max="50"></div>
+                <div class="dmv-grid2">
+                    <div><label>Scene depth</label><input type="number" id="dmv-scene-depth" value="${settings.sceneDepth}" min="0" max="50"></div>
+                    <div><label>Chronicle depth</label><input type="number" id="dmv-chronicle-depth" value="${settings.chronicleDepth}" min="0" max="100"></div>
+                    <div><label>Msgs DM sees</label><input type="number" id="dmv-msg-depth" value="${settings.messageDepth}" min="2" max="30"></div>
+                    <div><label>Re-condense every</label><input type="number" id="dmv-condense-every" value="${settings.condenseEvery}" min="1" max="50"></div>
                 </div>
 
-                <div class="mw-api">
-                    <label class="mw-api-title">External DM API</label>
-                    <select id="mw-api-provider">
+                <div class="dmv-api">
+                    <label class="dmv-api-title">External DM API</label>
+                    <select id="dmv-api-provider">
                         <option value="openrouter" ${settings.apiProvider === 'openrouter' ? 'selected' : ''}>OpenRouter</option>
                         <option value="moonshot" ${settings.apiProvider === 'moonshot' ? 'selected' : ''}>Moonshot AI</option>
                         <option value="glm" ${settings.apiProvider === 'glm' ? 'selected' : ''}>GLM / Zhipu AI</option>
                         <option value="custom" ${settings.apiProvider === 'custom' ? 'selected' : ''}>Custom Endpoint</option>
                     </select>
-                    <input type="password" id="mw-api-key" value="${escapeHtml(settings.apiKey)}" placeholder="API key">
-                    <input type="text" id="mw-api-endpoint" value="${escapeHtml(settings.apiEndpoint)}" placeholder="Endpoint URL">
-                    <input type="text" id="mw-api-model" value="${escapeHtml(settings.apiModel)}" placeholder="Model (e.g. moonshotai/kimi-k2)">
-                    <div id="mw-model-hint" class="mw-hint"></div>
-                    <div class="mw-btn-row">
-                        <button id="mw-api-test" class="mw-btn mw-btn-info">Test</button>
-                        <button id="mw-api-save" class="mw-btn mw-btn-ok">Save</button>
+                    <input type="password" id="dmv-api-key" value="${escapeHtml(settings.apiKey)}" placeholder="API key">
+                    <input type="text" id="dmv-api-endpoint" value="${escapeHtml(settings.apiEndpoint)}" placeholder="Endpoint URL">
+                    <input type="text" id="dmv-api-model" value="${escapeHtml(settings.apiModel)}" placeholder="Model (e.g. moonshotai/kimi-k2)">
+                    <div id="dmv-model-hint" class="dmv-hint"></div>
+                    <div class="dmv-btn-row">
+                        <button id="dmv-api-test" class="dmv-btn dmv-btn-info">Test</button>
+                        <button id="dmv-api-save" class="dmv-btn dmv-btn-ok">Save</button>
                     </div>
-                    <div id="mw-api-status" class="mw-status"></div>
+                    <div id="dmv-api-status" class="dmv-status"></div>
                 </div>
 
-                <button id="mw-open-panel" class="menu_button" style="width:100%;margin-top:8px;">Open World Manager</button>
+                <button id="dmv-open-panel" class="menu_button" style="width:100%;margin-top:8px;">Open World Manager</button>
             </div>
         </div>
     </div>`;
@@ -548,40 +548,40 @@ function injectSettingsUI() {
         if (t) { t.insertAdjacentHTML('beforeend', html); break; }
     }
 
-    bind('mw-enabled', 'change', e => { settings.enabled = e.target.checked; saveSettings(); settings.enabled ? injectVerse() : clearInjection(); updateFabVisibility(); });
-    bind('mw-auto-run', 'change', e => { settings.autoRun = e.target.checked; saveSettings(); });
-    bind('mw-show-fab', 'change', e => { settings.showFab = e.target.checked; saveSettings(); updateFabVisibility(); });
-    bind('mw-scene-depth', 'change', e => { settings.sceneDepth = parseInt(e.target.value) || 3; saveSettings(); injectVerse(); });
-    bind('mw-chronicle-depth', 'change', e => { settings.chronicleDepth = parseInt(e.target.value) || 10; saveSettings(); injectVerse(); });
-    bind('mw-msg-depth', 'change', e => { settings.messageDepth = parseInt(e.target.value) || 6; saveSettings(); });
-    bind('mw-condense-every', 'change', e => { settings.condenseEvery = parseInt(e.target.value) || 4; saveSettings(); });
-    bind('mw-open-panel', 'click', () => togglePanel(true));
+    bind('dmv-enabled', 'change', e => { settings.enabled = e.target.checked; saveSettings(); settings.enabled ? injectVerse() : clearInjection(); updateFabVisibility(); });
+    bind('dmv-auto-run', 'change', e => { settings.autoRun = e.target.checked; saveSettings(); });
+    bind('dmv-show-fab', 'change', e => { settings.showFab = e.target.checked; saveSettings(); updateFabVisibility(); });
+    bind('dmv-scene-depth', 'change', e => { settings.sceneDepth = parseInt(e.target.value) || 3; saveSettings(); injectVerse(); });
+    bind('dmv-chronicle-depth', 'change', e => { settings.chronicleDepth = parseInt(e.target.value) || 10; saveSettings(); injectVerse(); });
+    bind('dmv-msg-depth', 'change', e => { settings.messageDepth = parseInt(e.target.value) || 6; saveSettings(); });
+    bind('dmv-condense-every', 'change', e => { settings.condenseEvery = parseInt(e.target.value) || 4; saveSettings(); });
+    bind('dmv-open-panel', 'click', () => togglePanel(true));
 
-    bind('mw-api-provider', 'change', e => {
+    bind('dmv-api-provider', 'change', e => {
         settings.apiProvider = e.target.value;
         const preset = PROVIDER_PRESETS[e.target.value] || PROVIDER_PRESETS.custom;
         if (e.target.value !== 'custom') {
-            const ep = document.getElementById('mw-api-endpoint');
+            const ep = document.getElementById('dmv-api-endpoint');
             if (ep) { ep.value = preset.endpoint; settings.apiEndpoint = preset.endpoint; }
         }
-        const hint = document.getElementById('mw-model-hint');
+        const hint = document.getElementById('dmv-model-hint');
         if (hint) hint.textContent = preset.hint;
         saveSettings();
     });
-    const hint = document.getElementById('mw-model-hint');
+    const hint = document.getElementById('dmv-model-hint');
     if (hint) hint.textContent = (PROVIDER_PRESETS[settings.apiProvider] || PROVIDER_PRESETS.custom).hint;
 
-    bind('mw-api-save', 'click', () => {
-        settings.apiKey = val('mw-api-key');
-        settings.apiEndpoint = val('mw-api-endpoint');
-        settings.apiModel = val('mw-api-model');
+    bind('dmv-api-save', 'click', () => {
+        settings.apiKey = val('dmv-api-key');
+        settings.apiEndpoint = val('dmv-api-endpoint');
+        settings.apiModel = val('dmv-api-model');
         saveSettings();
         showApiStatus('Saved!', 'ok');
     });
-    bind('mw-api-test', 'click', async () => {
-        settings.apiKey = val('mw-api-key');
-        settings.apiEndpoint = val('mw-api-endpoint');
-        settings.apiModel = val('mw-api-model');
+    bind('dmv-api-test', 'click', async () => {
+        settings.apiKey = val('dmv-api-key');
+        settings.apiEndpoint = val('dmv-api-endpoint');
+        settings.apiModel = val('dmv-api-model');
         saveSettings();
         showApiStatus('Testing...', 'info');
         const r = await testExternalAPI();
@@ -590,7 +590,7 @@ function injectSettingsUI() {
 }
 
 function showApiStatus(msg, type) {
-    const el = document.getElementById('mw-api-status');
+    const el = document.getElementById('dmv-api-status');
     if (!el) return;
     el.textContent = msg;
     el.style.color = type === 'ok' ? '#2ecc71' : type === 'error' ? '#e74c3c' : '#888';
@@ -603,108 +603,108 @@ function showApiStatus(msg, type) {
 
 function injectPanelUI() {
     const html = `
-    <button id="mw-fab" title="Media World"><span style="font-size:22px;">🌌</span></button>
+    <button id="dmv-fab" title="Dandeleon Multiverse"><span style="font-size:22px;">🌌</span></button>
 
-    <div id="mw-panel">
-        <div class="mw-header">
-            <span>🌌 Media World</span>
+    <div id="dmv-panel">
+        <div class="dmv-header">
+            <span>🌌 Dandeleon Multiverse</span>
             <span>
-                <span id="mw-processing" class="mw-proc">working…</span>
-                <span class="mw-close fa-solid fa-xmark" id="mw-panel-close"></span>
+                <span id="dmv-processing" class="dmv-proc">working…</span>
+                <span class="dmv-close fa-solid fa-xmark" id="dmv-panel-close"></span>
             </span>
         </div>
 
-        <div class="mw-body">
+        <div class="dmv-body">
             <!-- Verse selector (multiverse) -->
-            <div class="mw-section">
+            <div class="dmv-section">
                 <label>Active Verse</label>
-                <select id="mw-verse-select"><option value="">— None —</option></select>
-                <div class="mw-btn-row">
-                    <button class="mw-btn mw-btn-ok" id="mw-new-verse">+ New Verse</button>
-                    <button class="mw-btn mw-btn-danger" id="mw-delete-verse">Delete</button>
+                <select id="dmv-verse-select"><option value="">— None —</option></select>
+                <div class="dmv-btn-row">
+                    <button class="dmv-btn dmv-btn-ok" id="dmv-new-verse">+ New Verse</button>
+                    <button class="dmv-btn dmv-btn-danger" id="dmv-delete-verse">Delete</button>
                 </div>
-                <div class="mw-new-form" id="mw-new-verse-form">
-                    <input type="text" id="mw-new-verse-name" placeholder="Verse name (e.g. Hogwarts — Year 5)">
-                    <div class="mw-btn-row" style="margin-top:6px;">
-                        <button class="mw-btn mw-btn-ok" id="mw-create-verse">Create</button>
-                        <button class="mw-btn" id="mw-cancel-verse">Cancel</button>
+                <div class="dmv-new-form" id="dmv-new-verse-form">
+                    <input type="text" id="dmv-new-verse-name" placeholder="Verse name (e.g. Hogwarts — Year 5)">
+                    <div class="dmv-btn-row" style="margin-top:6px;">
+                        <button class="dmv-btn dmv-btn-ok" id="dmv-create-verse">Create</button>
+                        <button class="dmv-btn" id="dmv-cancel-verse">Cancel</button>
                     </div>
                 </div>
             </div>
 
-            <div id="mw-active" style="display:none;">
+            <div id="dmv-active" style="display:none;">
                 <!-- Run controls -->
-                <div class="mw-section mw-run-row">
-                    <button class="mw-btn mw-btn-primary" id="mw-run-dm">▶ Advance World</button>
-                    <button class="mw-btn" id="mw-recondense" title="Re-condense the long-term memory from canon">↻ Re-condense</button>
+                <div class="dmv-section dmv-run-row">
+                    <button class="dmv-btn dmv-btn-primary" id="dmv-run-dm">▶ Advance World</button>
+                    <button class="dmv-btn" id="dmv-recondense" title="Re-condense the long-term memory from canon">↻ Re-condense</button>
                 </div>
 
                 <!-- Latest prose (your side) -->
-                <div class="mw-section">
+                <div class="dmv-section">
                     <label>Now (your narration)</label>
-                    <div id="mw-prose" class="mw-prose">—</div>
+                    <div id="dmv-prose" class="dmv-prose">—</div>
                 </div>
 
                 <!-- Scene widgets -->
-                <div class="mw-section">
+                <div class="dmv-section">
                     <label>Scene</label>
-                    <div class="mw-grid2">
-                        <input type="text" id="mw-sc-weather" placeholder="weather">
-                        <input type="text" id="mw-sc-time" placeholder="time">
-                        <input type="text" id="mw-sc-mood" placeholder="mood">
-                        <input type="text" id="mw-sc-location" placeholder="location">
+                    <div class="dmv-grid2">
+                        <input type="text" id="dmv-sc-weather" placeholder="weather">
+                        <input type="text" id="dmv-sc-time" placeholder="time">
+                        <input type="text" id="dmv-sc-mood" placeholder="mood">
+                        <input type="text" id="dmv-sc-location" placeholder="location">
                     </div>
-                    <label class="mw-sub">Present cast (one per line: Name — note)</label>
-                    <textarea id="mw-sc-characters" rows="2" placeholder="Abraxas Malfoy — smirking&#10;Greta Hellwig — unimpressed"></textarea>
-                    <label class="mw-sub">Threads / gossip (one per line)</label>
-                    <textarea id="mw-sc-threads" rows="2" placeholder="new professor incoming"></textarea>
-                    <label class="mw-sub">Compiled &lt;currently&gt; (injected at depth ${settings.sceneDepth})</label>
-                    <textarea id="mw-sc-currently" rows="4" placeholder="The DM writes this each turn — you can edit it."></textarea>
+                    <label class="dmv-sub">Present cast (one per line: Name — note)</label>
+                    <textarea id="dmv-sc-characters" rows="2" placeholder="Abraxas Malfoy — smirking&#10;Greta Hellwig — unimpressed"></textarea>
+                    <label class="dmv-sub">Threads / gossip (one per line)</label>
+                    <textarea id="dmv-sc-threads" rows="2" placeholder="new professor incoming"></textarea>
+                    <label class="dmv-sub">Compiled &lt;currently&gt; (injected at depth ${settings.sceneDepth})</label>
+                    <textarea id="dmv-sc-currently" rows="4" placeholder="The DM writes this each turn — you can edit it."></textarea>
                 </div>
 
                 <!-- Map -->
-                <div class="mw-section">
+                <div class="dmv-section">
                     <label>Map — known locations (one per line)</label>
-                    <textarea id="mw-locations" rows="3" placeholder="Great Hall&#10;Slytherin Common Room&#10;Astronomy Tower"></textarea>
+                    <textarea id="dmv-locations" rows="3" placeholder="Great Hall&#10;Slytherin Common Room&#10;Astronomy Tower"></textarea>
                 </div>
 
                 <!-- Canon -->
-                <div class="mw-section">
+                <div class="dmv-section">
                     <label>Canon — full history (stays out of Caleb's window)</label>
-                    <textarea id="mw-canon" rows="6" placeholder="Paste the full backstory / everything established. The DM holds this and feeds Caleb only a condensed version."></textarea>
+                    <textarea id="dmv-canon" rows="6" placeholder="Paste the full backstory / everything established. The DM holds this and feeds Caleb only a condensed version."></textarea>
                 </div>
 
                 <!-- Chronicle -->
-                <div class="mw-section">
+                <div class="dmv-section">
                     <label>Chronicle — condensed memory (injected at depth ${settings.chronicleDepth})</label>
-                    <textarea id="mw-chronicle" rows="4" placeholder="Auto-condensed from canon. Second person — his memory."></textarea>
+                    <textarea id="dmv-chronicle" rows="4" placeholder="Auto-condensed from canon. Second person — his memory."></textarea>
                 </div>
 
                 <!-- Future beats (spoiler gate) -->
-                <div class="mw-section">
+                <div class="dmv-section">
                     <label>Future beats — dark until reached</label>
-                    <div id="mw-beats"></div>
-                    <div class="mw-btn-row" style="margin-top:6px;">
-                        <input type="text" id="mw-new-beat" placeholder="A beat that hasn't happened yet…" style="flex:1;">
-                        <button class="mw-btn mw-btn-ok" id="mw-add-beat">+ Add</button>
+                    <div id="dmv-beats"></div>
+                    <div class="dmv-btn-row" style="margin-top:6px;">
+                        <input type="text" id="dmv-new-beat" placeholder="A beat that hasn't happened yet…" style="flex:1;">
+                        <button class="dmv-btn dmv-btn-ok" id="dmv-add-beat">+ Add</button>
                     </div>
                 </div>
 
                 <!-- DM chat -->
-                <div class="mw-section">
+                <div class="dmv-section">
                     <label>Talk to the World-Keeper</label>
-                    <div id="mw-dmchat" class="mw-dmchat"></div>
-                    <div class="mw-btn-row">
-                        <input type="text" id="mw-dm-input" placeholder="Set up the world, hand it backstory, pre-author beats…" style="flex:1;">
-                        <button class="mw-btn mw-btn-primary" id="mw-dm-send">Send</button>
+                    <div id="dmv-dmchat" class="dmv-dmchat"></div>
+                    <div class="dmv-btn-row">
+                        <input type="text" id="dmv-dm-input" placeholder="Set up the world, hand it backstory, pre-author beats…" style="flex:1;">
+                        <button class="dmv-btn dmv-btn-primary" id="dmv-dm-send">Send</button>
                     </div>
                 </div>
             </div>
 
             <!-- Library -->
-            <div class="mw-section">
+            <div class="dmv-section">
                 <label>Verse Library</label>
-                <div id="mw-library"></div>
+                <div id="dmv-library"></div>
             </div>
         </div>
     </div>`;
@@ -715,45 +715,45 @@ function injectPanelUI() {
 }
 
 function bindPanelEvents() {
-    bind('mw-fab', 'click', () => togglePanel());
-    bind('mw-panel-close', 'click', () => togglePanel(false));
+    bind('dmv-fab', 'click', () => togglePanel());
+    bind('dmv-panel-close', 'click', () => togglePanel(false));
 
-    bind('mw-verse-select', 'change', onVerseSelected);
-    bind('mw-new-verse', 'click', () => document.getElementById('mw-new-verse-form')?.classList.toggle('mw-visible'));
-    bind('mw-cancel-verse', 'click', () => document.getElementById('mw-new-verse-form')?.classList.remove('mw-visible'));
-    bind('mw-create-verse', 'click', onCreateVerse);
-    bind('mw-delete-verse', 'click', onDeleteVerse);
+    bind('dmv-verse-select', 'change', onVerseSelected);
+    bind('dmv-new-verse', 'click', () => document.getElementById('dmv-new-verse-form')?.classList.toggle('dmv-visible'));
+    bind('dmv-cancel-verse', 'click', () => document.getElementById('dmv-new-verse-form')?.classList.remove('dmv-visible'));
+    bind('dmv-create-verse', 'click', onCreateVerse);
+    bind('dmv-delete-verse', 'click', onDeleteVerse);
 
-    bind('mw-run-dm', 'click', () => runDM());
-    bind('mw-recondense', 'click', () => recondenseNow());
+    bind('dmv-run-dm', 'click', () => runDM());
+    bind('dmv-recondense', 'click', () => recondenseNow());
 
     // Scene field edits
-    bind('mw-sc-weather', 'input', debounce(saveSceneFields, 500));
-    bind('mw-sc-time', 'input', debounce(saveSceneFields, 500));
-    bind('mw-sc-mood', 'input', debounce(saveSceneFields, 500));
-    bind('mw-sc-location', 'input', debounce(saveSceneFields, 500));
-    bind('mw-sc-characters', 'input', debounce(saveSceneFields, 500));
-    bind('mw-sc-threads', 'input', debounce(saveSceneFields, 500));
-    bind('mw-sc-currently', 'input', debounce(() => { const v = getActiveVerse(); if (v) { v.scene.currently = val('mw-sc-currently'); saveSettings(); injectVerse(); } }, 500));
+    bind('dmv-sc-weather', 'input', debounce(saveSceneFields, 500));
+    bind('dmv-sc-time', 'input', debounce(saveSceneFields, 500));
+    bind('dmv-sc-mood', 'input', debounce(saveSceneFields, 500));
+    bind('dmv-sc-location', 'input', debounce(saveSceneFields, 500));
+    bind('dmv-sc-characters', 'input', debounce(saveSceneFields, 500));
+    bind('dmv-sc-threads', 'input', debounce(saveSceneFields, 500));
+    bind('dmv-sc-currently', 'input', debounce(() => { const v = getActiveVerse(); if (v) { v.scene.currently = val('dmv-sc-currently'); saveSettings(); injectVerse(); } }, 500));
 
-    bind('mw-locations', 'input', debounce(() => {
+    bind('dmv-locations', 'input', debounce(() => {
         const v = getActiveVerse(); if (!v) return;
-        v.world.locations = val('mw-locations').split('\n').map(s => s.trim()).filter(Boolean).map(name => ({ name, note: '' }));
+        v.world.locations = val('dmv-locations').split('\n').map(s => s.trim()).filter(Boolean).map(name => ({ name, note: '' }));
         saveSettings();
     }, 500));
 
-    bind('mw-canon', 'input', debounce(() => { const v = getActiveVerse(); if (v) { v.canon = val('mw-canon'); saveSettings(); } }, 600));
-    bind('mw-chronicle', 'input', debounce(() => { const v = getActiveVerse(); if (v) { v.chronicle = val('mw-chronicle'); saveSettings(); injectVerse(); } }, 600));
+    bind('dmv-canon', 'input', debounce(() => { const v = getActiveVerse(); if (v) { v.canon = val('dmv-canon'); saveSettings(); } }, 600));
+    bind('dmv-chronicle', 'input', debounce(() => { const v = getActiveVerse(); if (v) { v.chronicle = val('dmv-chronicle'); saveSettings(); injectVerse(); } }, 600));
 
-    bind('mw-add-beat', 'click', onAddBeat);
-    bind('mw-new-beat', 'keydown', e => { if (e.key === 'Enter') onAddBeat(); });
+    bind('dmv-add-beat', 'click', onAddBeat);
+    bind('dmv-new-beat', 'keydown', e => { if (e.key === 'Enter') onAddBeat(); });
 
-    bind('mw-dm-send', 'click', sendDMMessage);
-    bind('mw-dm-input', 'keydown', e => { if (e.key === 'Enter') sendDMMessage(); });
+    bind('dmv-dm-send', 'click', sendDMMessage);
+    bind('dmv-dm-input', 'keydown', e => { if (e.key === 'Enter') sendDMMessage(); });
 }
 
 function sendDMMessage() {
-    const input = document.getElementById('mw-dm-input');
+    const input = document.getElementById('dmv-dm-input');
     if (!input || !input.value.trim()) return;
     const msg = input.value;
     input.value = '';
@@ -763,15 +763,15 @@ function sendDMMessage() {
 function saveSceneFields() {
     const v = getActiveVerse();
     if (!v) return;
-    v.scene.weather = val('mw-sc-weather');
-    v.scene.time = val('mw-sc-time');
-    v.scene.mood = val('mw-sc-mood');
-    v.scene.location = val('mw-sc-location');
-    v.scene.characters = val('mw-sc-characters').split('\n').map(s => s.trim()).filter(Boolean).map(line => {
+    v.scene.weather = val('dmv-sc-weather');
+    v.scene.time = val('dmv-sc-time');
+    v.scene.mood = val('dmv-sc-mood');
+    v.scene.location = val('dmv-sc-location');
+    v.scene.characters = val('dmv-sc-characters').split('\n').map(s => s.trim()).filter(Boolean).map(line => {
         const [name, note] = line.split(/\s*[—-]\s*/);
         return { name: (name || '').trim(), note: (note || '').trim() };
     }).filter(c => c.name);
-    v.scene.threads = val('mw-sc-threads').split('\n').map(s => s.trim()).filter(Boolean);
+    v.scene.threads = val('dmv-sc-threads').split('\n').map(s => s.trim()).filter(Boolean);
     saveSettings();
 }
 
@@ -788,7 +788,7 @@ function onVerseSelected(e) {
 }
 
 function onCreateVerse() {
-    const nameInput = document.getElementById('mw-new-verse-name');
+    const nameInput = document.getElementById('dmv-new-verse-name');
     const name = nameInput?.value?.trim();
     if (!name) return;
     let id = name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
@@ -801,7 +801,7 @@ function onCreateVerse() {
     saveChatData(chatData);
 
     if (nameInput) nameInput.value = '';
-    document.getElementById('mw-new-verse-form')?.classList.remove('mw-visible');
+    document.getElementById('dmv-new-verse-form')?.classList.remove('dmv-visible');
     updateUI();
 }
 
@@ -819,7 +819,7 @@ function onDeleteVerse() {
 }
 
 function onAddBeat() {
-    const input = document.getElementById('mw-new-beat');
+    const input = document.getElementById('dmv-new-beat');
     const text = input?.value?.trim();
     if (!text) return;
     const v = getActiveVerse();
@@ -838,7 +838,7 @@ function updateUI() {
     const chatData = getChatData();
     const activeId = chatData.activeVerseId;
 
-    const select = document.getElementById('mw-verse-select');
+    const select = document.getElementById('dmv-verse-select');
     if (select) {
         select.innerHTML = '<option value="">— None —</option>' +
             Object.values(settings.verseLibrary).map(v =>
@@ -846,19 +846,19 @@ function updateUI() {
     }
 
     const verse = getActiveVerse();
-    setVisible('mw-active', !!verse);
+    setVisible('dmv-active', !!verse);
 
     if (verse) {
-        setVal('mw-sc-weather', verse.scene.weather);
-        setVal('mw-sc-time', verse.scene.time);
-        setVal('mw-sc-mood', verse.scene.mood);
-        setVal('mw-sc-location', verse.scene.location);
-        setVal('mw-sc-characters', verse.scene.characters.map(c => c.note ? `${c.name} — ${c.note}` : c.name).join('\n'));
-        setVal('mw-sc-threads', verse.scene.threads.join('\n'));
-        setVal('mw-sc-currently', verse.scene.currently);
-        setVal('mw-locations', verse.world.locations.map(l => l.name).join('\n'));
-        setVal('mw-canon', verse.canon);
-        setVal('mw-chronicle', verse.chronicle);
+        setVal('dmv-sc-weather', verse.scene.weather);
+        setVal('dmv-sc-time', verse.scene.time);
+        setVal('dmv-sc-mood', verse.scene.mood);
+        setVal('dmv-sc-location', verse.scene.location);
+        setVal('dmv-sc-characters', verse.scene.characters.map(c => c.note ? `${c.name} — ${c.note}` : c.name).join('\n'));
+        setVal('dmv-sc-threads', verse.scene.threads.join('\n'));
+        setVal('dmv-sc-currently', verse.scene.currently);
+        setVal('dmv-locations', verse.world.locations.map(l => l.name).join('\n'));
+        setVal('dmv-canon', verse.canon);
+        setVal('dmv-chronicle', verse.chronicle);
         updateProseDisplay();
         renderBeats();
         renderDMChat();
@@ -870,41 +870,41 @@ function updateUI() {
 function updateSceneDisplay() {
     const v = getActiveVerse();
     if (!v) return;
-    setVal('mw-sc-weather', v.scene.weather);
-    setVal('mw-sc-time', v.scene.time);
-    setVal('mw-sc-mood', v.scene.mood);
-    setVal('mw-sc-location', v.scene.location);
-    setVal('mw-sc-characters', v.scene.characters.map(c => c.note ? `${c.name} — ${c.note}` : c.name).join('\n'));
-    setVal('mw-sc-threads', v.scene.threads.join('\n'));
-    setVal('mw-sc-currently', v.scene.currently);
+    setVal('dmv-sc-weather', v.scene.weather);
+    setVal('dmv-sc-time', v.scene.time);
+    setVal('dmv-sc-mood', v.scene.mood);
+    setVal('dmv-sc-location', v.scene.location);
+    setVal('dmv-sc-characters', v.scene.characters.map(c => c.note ? `${c.name} — ${c.note}` : c.name).join('\n'));
+    setVal('dmv-sc-threads', v.scene.threads.join('\n'));
+    setVal('dmv-sc-currently', v.scene.currently);
 }
 
 function updateProseDisplay() {
     const v = getActiveVerse();
-    const el = document.getElementById('mw-prose');
+    const el = document.getElementById('dmv-prose');
     if (el) el.textContent = v?.prose || '—';
 }
 
 function updateChronicleDisplay() {
     const v = getActiveVerse();
-    setVal('mw-chronicle', v?.chronicle || '');
+    setVal('dmv-chronicle', v?.chronicle || '');
 }
 
 function renderBeats() {
-    const container = document.getElementById('mw-beats');
+    const container = document.getElementById('dmv-beats');
     const v = getActiveVerse();
     if (!container || !v) return;
     if (v.futureBeats.length === 0) {
-        container.innerHTML = '<div class="mw-empty">No future beats. Pre-author the arc — they stay dark until reached.</div>';
+        container.innerHTML = '<div class="dmv-empty">No future beats. Pre-author the arc — they stay dark until reached.</div>';
         return;
     }
     container.innerHTML = v.futureBeats.map(b => `
-        <div class="mw-beat ${b.revealed ? 'revealed' : ''}" data-id="${b.id}">
-            <span class="mw-beat-dot">${b.revealed ? '◉' : '○'}</span>
-            <span class="mw-beat-text">${escapeHtml(b.text)}</span>
-            <span class="mw-beat-del fa-solid fa-xmark" data-id="${b.id}" title="Delete"></span>
+        <div class="dmv-beat ${b.revealed ? 'revealed' : ''}" data-id="${b.id}">
+            <span class="dmv-beat-dot">${b.revealed ? '◉' : '○'}</span>
+            <span class="dmv-beat-text">${escapeHtml(b.text)}</span>
+            <span class="dmv-beat-del fa-solid fa-xmark" data-id="${b.id}" title="Delete"></span>
         </div>`).join('');
-    container.querySelectorAll('.mw-beat-del').forEach(el => {
+    container.querySelectorAll('.dmv-beat-del').forEach(el => {
         el.addEventListener('click', () => {
             v.futureBeats = v.futureBeats.filter(b => b.id !== el.dataset.id);
             saveSettings();
@@ -914,38 +914,38 @@ function renderBeats() {
 }
 
 function renderDMChat() {
-    const container = document.getElementById('mw-dmchat');
+    const container = document.getElementById('dmv-dmchat');
     const v = getActiveVerse();
     if (!container || !v) return;
     if (v.dmChat.length === 0) {
-        container.innerHTML = '<div class="mw-empty">Tell the world-keeper what world you want and hand it the backstory.</div>';
+        container.innerHTML = '<div class="dmv-empty">Tell the world-keeper what world you want and hand it the backstory.</div>';
         return;
     }
     container.innerHTML = v.dmChat.slice(-20).map(m =>
-        `<div class="mw-msg mw-msg-${m.role}"><b>${m.role === 'user' ? 'You' : 'DM'}:</b> ${escapeHtml(m.content)}</div>`).join('');
+        `<div class="dmv-msg dmv-msg-${m.role}"><b>${m.role === 'user' ? 'You' : 'DM'}:</b> ${escapeHtml(m.content)}</div>`).join('');
     container.scrollTop = container.scrollHeight;
 }
 
 function updateLibrary() {
-    const container = document.getElementById('mw-library');
+    const container = document.getElementById('dmv-library');
     if (!container) return;
     const chatData = getChatData();
     const entries = Object.values(settings.verseLibrary);
     if (entries.length === 0) {
-        container.innerHTML = '<div class="mw-empty">No verses yet. Click "+ New Verse" to start one.</div>';
+        container.innerHTML = '<div class="dmv-empty">No verses yet. Click "+ New Verse" to start one.</div>';
         return;
     }
     container.innerHTML = entries.map(v => {
         const active = v.id === chatData.activeVerseId;
         const beats = v.futureBeats.filter(b => !b.revealed).length;
-        return `<div class="mw-lib-item ${active ? 'active' : ''}" data-id="${v.id}">
-            <span class="mw-lib-name">🌐 ${escapeHtml(v.name)}</span>
-            <span class="mw-lib-meta">${v.scene.location || 'no scene'}${beats ? ` · ${beats} dark` : ''}</span>
+        return `<div class="dmv-lib-item ${active ? 'active' : ''}" data-id="${v.id}">
+            <span class="dmv-lib-name">🌐 ${escapeHtml(v.name)}</span>
+            <span class="dmv-lib-meta">${v.scene.location || 'no scene'}${beats ? ` · ${beats} dark` : ''}</span>
         </div>`;
     }).join('');
-    container.querySelectorAll('.mw-lib-item').forEach(item => {
+    container.querySelectorAll('.dmv-lib-item').forEach(item => {
         item.addEventListener('click', () => {
-            const select = document.getElementById('mw-verse-select');
+            const select = document.getElementById('dmv-verse-select');
             if (select) { select.value = item.dataset.id; select.dispatchEvent(new Event('change')); }
         });
     });
@@ -956,22 +956,22 @@ function updateLibrary() {
 // =============================================================================
 
 function togglePanel(force) {
-    const panel = document.getElementById('mw-panel');
+    const panel = document.getElementById('dmv-panel');
     if (!panel) return;
-    if (force === true) panel.classList.add('mw-open');
-    else if (force === false) panel.classList.remove('mw-open');
-    else panel.classList.toggle('mw-open');
+    if (force === true) panel.classList.add('dmv-open');
+    else if (force === false) panel.classList.remove('dmv-open');
+    else panel.classList.toggle('dmv-open');
 }
 
 function updateFabVisibility() {
-    const fab = document.getElementById('mw-fab');
+    const fab = document.getElementById('dmv-fab');
     if (!fab) return;
-    if (settings.enabled && settings.showFab) fab.classList.add('mw-fab-visible');
-    else fab.classList.remove('mw-fab-visible');
+    if (settings.enabled && settings.showFab) fab.classList.add('dmv-fab-visible');
+    else fab.classList.remove('dmv-fab-visible');
 }
 
 function updateProcessingIndicator(show) {
-    const el = document.getElementById('mw-processing');
+    const el = document.getElementById('dmv-processing');
     if (el) el.style.display = show ? 'inline' : 'none';
 }
 
@@ -1003,12 +1003,12 @@ function debounce(fn, delay) {
 
 try {
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', () => setTimeout(() => { try { init(); } catch (e) { console.error('[MediaWorld] Init failed:', e); } }, 1500));
+        document.addEventListener('DOMContentLoaded', () => setTimeout(() => { try { init(); } catch (e) { console.error('[Multiverse] Init failed:', e); } }, 1500));
     } else {
-        setTimeout(() => { try { init(); } catch (e) { console.error('[MediaWorld] Init failed:', e); } }, 1500);
+        setTimeout(() => { try { init(); } catch (e) { console.error('[Multiverse] Init failed:', e); } }, 1500);
     }
 } catch (e) {
-    console.error('[MediaWorld] Setup failed:', e);
+    console.error('[Multiverse] Setup failed:', e);
 }
 
 export default { init };
