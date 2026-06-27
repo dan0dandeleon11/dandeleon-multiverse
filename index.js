@@ -22,6 +22,7 @@ const PREMISE_PROMPT_ID = 'dandeleon_multiverse_premise';
 const OFFSCREEN_PROMPT_ID = 'dandeleon_multiverse_offscreen';
 const CAST_PROMPT_ID = 'dandeleon_multiverse_cast';
 const STORAGE_KEY = 'dandeleon_multiverse_settings';
+const SETTINGS_MODULE = 'dandeleon_multiverse';
 const CHAT_META_KEY = 'dandeleon_multiverse';
 
 // =============================================================================
@@ -125,18 +126,36 @@ export async function init() {
 // =============================================================================
 
 function loadSettings() {
+    let loaded = null;
+    // Primary: SillyTavern's own settings store (persists to server settings.json)
     try {
-        const saved = localStorage.getItem(STORAGE_KEY);
-        if (saved) {
-            settings = { ...DEFAULT_SETTINGS, ...JSON.parse(saved) };
-            if (!settings.verseLibrary) settings.verseLibrary = {};
-        }
-    } catch (e) { console.warn('[Multiverse] load failed:', e); }
+        const ctx = getContext();
+        const es = ctx && (ctx.extensionSettings || ctx.extension_settings);
+        if (es && es[SETTINGS_MODULE]) loaded = es[SETTINGS_MODULE];
+    } catch (e) { /* fall through */ }
+    // Fallback / migration: browser localStorage
+    if (!loaded) {
+        try { const s = localStorage.getItem(STORAGE_KEY); if (s) loaded = JSON.parse(s); } catch (e) { /* */ }
+    }
+    if (loaded) {
+        settings = { ...DEFAULT_SETTINGS, ...loaded };
+        if (!settings.verseLibrary) settings.verseLibrary = {};
+        if (!settings.prompts) settings.prompts = { dm: '', worldkeeper: '', summary: '' };
+    }
 }
 
 function saveSettings() {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(settings)); }
-    catch (e) { console.warn('[Multiverse] save failed:', e); }
+    // Primary: SillyTavern settings store (reliable across reloads, even on mobile webviews)
+    try {
+        const ctx = getContext();
+        const es = ctx && (ctx.extensionSettings || ctx.extension_settings);
+        if (es) {
+            es[SETTINGS_MODULE] = settings;
+            if (typeof ctx.saveSettingsDebounced === 'function') ctx.saveSettingsDebounced();
+        }
+    } catch (e) { console.warn('[Multiverse] save (extension_settings) failed:', e); }
+    // Backup mirror
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(settings)); } catch (e) { /* backup only */ }
 }
 
 function getChatData() {
