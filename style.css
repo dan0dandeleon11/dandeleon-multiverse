@@ -232,3 +232,19 @@
 #dmv-prompt-dm, #dmv-prompt-wk, #dmv-prompt-sum { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
 
 @media (min-width: 1001px) { #dmv-fab { bottom: 80px; } }
+
+/* Mobile: ST's message bar covers the bottom-right, so park the FAB top-right
+   below ST's top bar; drop backdrop-filter (flaky in phone webviews) and pin
+   a solid background + high z-index so it's always visible and tappable. */
+@media (max-width: 1000px) {
+    #dmv-fab {
+        top: calc(var(--topBarBlockSize, 42px) + 64px);
+        bottom: auto;
+        right: 10px;
+        z-index: 100000;
+        -webkit-backdrop-filter: none;
+        backdrop-filter: none;
+        background: #1a1a2e;
+    }
+    #dmv-fab.dmv-fab-visible { display: flex !important; }
+}
