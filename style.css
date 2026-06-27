@@ -16,29 +16,42 @@
     display: flex; align-items: center; gap: 8px;
     cursor: pointer; margin-bottom: 6px; font-size: 13px;
 }
-.dandeleon-multiverse-block .dmv-grid2 {
-    display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0;
+
+/* ---- Weather FX overlay (full-screen, subtle, non-interactive) ---- */
+#dmv-weather-fx {
+    position: fixed; inset: 0; pointer-events: none; z-index: 9990;
+    transition: background 1.2s ease; background: transparent;
 }
-.dandeleon-multiverse-block .dmv-grid2 label { font-size: 11px; opacity: 0.7; display: block; margin-bottom: 2px; }
-.dandeleon-multiverse-block input[type="number"],
-.dandeleon-multiverse-block input[type="text"],
-.dandeleon-multiverse-block input[type="password"],
-.dandeleon-multiverse-block select {
-    width: 100%; padding: 6px; background: #222; border: 1px solid #444;
-    color: #fff; border-radius: 4px; box-sizing: border-box;
+/* time-of-day tint */
+#dmv-weather-fx.dmv-tod-night { background: rgba(10, 14, 40, 0.22); }
+#dmv-weather-fx.dmv-tod-dusk  { background: rgba(60, 30, 50, 0.16); }
+#dmv-weather-fx.dmv-tod-dawn  { background: rgba(70, 60, 40, 0.12); }
+/* rain / storm: diagonal streaks */
+#dmv-weather-fx.dmv-fx-rain::before,
+#dmv-weather-fx.dmv-fx-storm::before {
+    content: ''; position: absolute; inset: -20%;
+    background-image: repeating-linear-gradient(102deg, transparent 0 6px, rgba(180,200,255,0.18) 6px 7px);
+    animation: dmv-rain 0.6s linear infinite; opacity: 0.5;
 }
-.dandeleon-multiverse-block .dmv-api {
-    margin-top: 10px; padding: 10px; background: rgba(0,0,0,0.2); border-radius: 8px;
+#dmv-weather-fx.dmv-fx-storm { animation: dmv-flash 7s linear infinite; }
+/* snow: drifting dots */
+#dmv-weather-fx.dmv-fx-snow::before {
+    content: ''; position: absolute; inset: -20%;
+    background-image: radial-gradient(rgba(255,255,255,0.7) 1.5px, transparent 2px);
+    background-size: 36px 36px; animation: dmv-snow 6s linear infinite; opacity: 0.5;
 }
-.dandeleon-multiverse-block .dmv-api-title { font-weight: bold; font-size: 12px; display: block; margin-bottom: 6px; }
-.dandeleon-multiverse-block .dmv-api > * { margin-bottom: 6px; }
-.dandeleon-multiverse-block .dmv-hint { font-size: 10px; opacity: 0.6; }
-.dandeleon-multiverse-block .dmv-status { font-size: 11px; color: #888; }
+/* fog: soft veil */
+#dmv-weather-fx.dmv-fx-fog::before {
+    content: ''; position: absolute; inset: 0;
+    background: linear-gradient(0deg, rgba(200,200,210,0.10), rgba(200,200,210,0.18));
+}
+@keyframes dmv-rain { to { transform: translateY(40px); } }
+@keyframes dmv-snow { to { transform: translateY(36px); } }
+@keyframes dmv-flash { 0%,93%,100% { box-shadow: inset 0 0 0 rgba(255,255,255,0); } 95% { box-shadow: inset 0 0 600px rgba(220,230,255,0.25); } }
 
 /* ---- FAB ---- */
 #dmv-fab {
-    display: none;
-    position: fixed; right: 14px; bottom: 14px;
+    display: none; position: fixed; right: 14px; bottom: 14px;
     width: 48px; height: 48px; border-radius: 50%;
     align-items: center; justify-content: center;
     background: var(--dmv-bg); border: 2px solid var(--dmv-accent);
@@ -53,7 +66,7 @@
 /* ---- Panel ---- */
 #dmv-panel {
     position: fixed; top: 0; right: 0; bottom: 0;
-    width: min(420px, 92vw); height: 100dvh;
+    width: min(440px, 94vw); height: 100dvh;
     background: var(--dmv-bg); border-left: 2px solid var(--dmv-border);
     box-shadow: -6px 0 24px rgba(0,0,0,0.5);
     z-index: 10000; color: var(--dmv-text);
@@ -64,8 +77,7 @@
 #dmv-panel.dmv-open { display: flex; transform: translateX(0); }
 
 .dmv-header {
-    flex-shrink: 0;
-    display: flex; align-items: center; justify-content: space-between;
+    flex-shrink: 0; display: flex; align-items: center; justify-content: space-between;
     padding: 12px 14px; border-bottom: 2px solid var(--dmv-border);
     font-weight: 700; color: var(--dmv-accent);
 }
@@ -73,10 +85,9 @@
 .dmv-close { cursor: pointer; font-size: 18px; padding: 4px; }
 .dmv-close:hover { color: var(--dmv-accent); }
 
-/* ONE scroll container — no nested scroll traps */
+/* ONE scroll container */
 .dmv-body {
-    flex: 1 1 auto; min-height: 0;
-    overflow-y: auto; overflow-x: hidden;
+    flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden;
     -webkit-overflow-scrolling: touch;
     padding: 12px; display: flex; flex-direction: column; gap: 14px;
 }
@@ -86,10 +97,10 @@
     font-size: 12px; font-weight: 600; color: var(--dmv-accent);
     text-transform: uppercase; letter-spacing: 0.03em;
 }
-.dmv-sub { font-size: 11px; opacity: 0.65; margin-top: 4px; }
 
 /* Fields */
 #dmv-panel input[type="text"],
+#dmv-panel input[type="password"],
 #dmv-panel select,
 #dmv-panel textarea {
     width: 100%; padding: 9px; box-sizing: border-box;
@@ -97,13 +108,12 @@
     color: var(--dmv-text); border-radius: 6px; font-size: 14px;
     font-family: inherit; resize: vertical;
 }
-#dmv-panel textarea { line-height: 1.4; }
-#dmv-panel input:focus, #dmv-panel select:focus, #dmv-panel textarea:focus {
-    outline: none; border-color: var(--dmv-accent);
-}
-.dmv-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+#dmv-panel textarea { line-height: 1.45; }
+#dmv-panel input:focus, #dmv-panel select:focus, #dmv-panel textarea:focus { outline: none; border-color: var(--dmv-accent); }
 
-/* Buttons — touch-friendly */
+.dmv-verse-picker { font-size: 15px !important; font-weight: 600; }
+
+/* Buttons */
 .dmv-btn-row { display: flex; gap: 8px; }
 .dmv-btn {
     flex: 1; min-height: 38px; padding: 8px 10px;
@@ -116,34 +126,54 @@
 .dmv-btn-primary { background: var(--dmv-accent); color: #fff; border-color: var(--dmv-accent); }
 .dmv-btn-ok { background: rgba(46,204,113,0.15); border-color: rgba(46,204,113,0.4); color: #2ecc71; }
 .dmv-btn-info { background: rgba(52,152,219,0.15); border-color: rgba(52,152,219,0.4); color: #3498db; }
-.dmv-btn-danger { background: rgba(231,76,60,0.12); border-color: rgba(231,76,60,0.35); color: #e74c3c; }
+.dmv-btn-icon { flex: 0 0 auto; min-width: 40px; max-width: 44px; font-size: 16px; }
 
-.dmv-run-row { flex-direction: row; }
+/* Collapsible forms */
+.dmv-new-form, .dmv-llm-form { display: none; margin-top: 8px; padding: 8px; background: var(--dmv-field); border-radius: 6px; }
+.dmv-new-form.dmv-visible, .dmv-llm-form.dmv-visible { display: flex; flex-direction: column; gap: 6px; }
+.dmv-hint { font-size: 10px; opacity: 0.6; }
+.dmv-status { font-size: 11px; color: #888; }
 
-/* New-verse form (collapsed by default) */
-.dmv-new-form { display: none; margin-top: 8px; padding: 8px; background: var(--dmv-field); border-radius: 6px; }
-.dmv-new-form.dmv-visible { display: block; }
+/* Scene chips (yoink #3 look) */
+.dmv-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.dmv-chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 5px 10px; background: var(--dmv-field);
+    border: 1px solid var(--dmv-border); border-radius: 999px;
+    font-size: 12px; white-space: nowrap;
+}
+.dmv-chip-person { border-color: rgba(107,138,253,0.5); }
 
-/* Prose (your narration) */
+/* Prose */
 .dmv-prose {
     background: var(--dmv-field); border: 1px solid var(--dmv-border);
     border-left: 3px solid var(--dmv-accent); border-radius: 6px;
-    padding: 10px; font-size: 14px; line-height: 1.5; font-style: italic;
-    white-space: pre-wrap;
+    padding: 10px; font-size: 14px; line-height: 1.5; font-style: italic; white-space: pre-wrap;
 }
 
-/* Future beats */
-.dmv-beat {
-    display: flex; align-items: center; gap: 8px;
-    padding: 8px; background: var(--dmv-field);
-    border: 1px solid var(--dmv-border); border-radius: 6px; margin-bottom: 6px;
-    font-size: 13px; opacity: 0.7;
+/* The two boxes */
+.dmv-box { background: rgba(0,0,0,0.12); border: 1px solid var(--dmv-border); border-radius: 8px; padding: 10px; }
+.dmv-box-title { font-size: 13px; font-weight: 700; letter-spacing: 0.04em; color: var(--dmv-accent); }
+.dmv-box-sub { font-weight: 400; font-size: 11px; opacity: 0.6; text-transform: none; letter-spacing: 0; }
+.dmv-inline-ctrls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 12px; opacity: 0.85; }
+.dmv-note { font-size: 11px; opacity: 0.6; line-height: 1.4; }
+.dmv-num {
+    width: 52px !important; padding: 4px 6px !important; text-align: center;
+    background: var(--dmv-field); border: 1px solid var(--dmv-border);
+    color: var(--dmv-text); border-radius: 5px; font-size: 13px;
 }
-.dmv-beat.revealed { opacity: 1; border-color: rgba(46,204,113,0.4); }
-.dmv-beat-dot { color: var(--dmv-accent); flex-shrink: 0; }
-.dmv-beat-text { flex: 1; min-width: 0; }
-.dmv-beat-del { cursor: pointer; opacity: 0.5; padding: 4px; flex-shrink: 0; }
-.dmv-beat-del:hover { opacity: 1; color: #e74c3c; }
+#dmv-timeline { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 13px; }
+
+/* Suggested options */
+.dmv-opt-group { margin-top: 8px; }
+.dmv-opt-head { font-size: 11px; font-weight: 700; opacity: 0.7; margin-bottom: 4px; }
+.dmv-opt {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding: 8px 10px; background: var(--dmv-field); border: 1px solid var(--dmv-border);
+    border-radius: 6px; margin-bottom: 6px; cursor: pointer; font-size: 13px;
+}
+.dmv-opt:hover { border-color: var(--dmv-accent); }
+.dmv-opt-add { flex-shrink: 0; color: #2ecc71; font-weight: 700; font-size: 12px; }
 
 /* DM chat */
 .dmv-dmchat {
@@ -152,25 +182,23 @@
     border-radius: 6px; padding: 8px; display: flex; flex-direction: column; gap: 8px;
 }
 .dmv-msg { font-size: 13px; line-height: 1.4; }
-.dmv-msg-user { color: var(--dmv-text); }
 .dmv-msg-assistant { color: var(--dmv-accent); }
 .dmv-msg b { opacity: 0.7; }
 
 /* Library */
 .dmv-lib-item {
-    display: flex; flex-direction: column; gap: 2px;
+    display: flex; align-items: center; gap: 8px;
     padding: 9px 10px; background: var(--dmv-field);
     border: 1px solid var(--dmv-border); border-radius: 6px; margin-bottom: 6px;
     cursor: pointer; transition: border-color 0.15s ease;
 }
 .dmv-lib-item:hover { border-color: var(--dmv-accent); }
 .dmv-lib-item.active { border-left: 3px solid var(--dmv-accent); }
-.dmv-lib-name { font-size: 14px; font-weight: 600; }
+.dmv-lib-name { flex: 1; font-size: 14px; font-weight: 600; }
 .dmv-lib-meta { font-size: 11px; opacity: 0.6; }
+.dmv-lib-del { opacity: 0.4; padding: 4px; flex-shrink: 0; }
+.dmv-lib-del:hover { opacity: 1; color: #e74c3c; }
 
 .dmv-empty { font-size: 12px; opacity: 0.5; padding: 8px; text-align: center; }
 
-/* Desktop: anchor panel beside chat rather than full-height overlay feel is fine as-is */
-@media (min-width: 1001px) {
-    #dmv-fab { bottom: 80px; }
-}
+@media (min-width: 1001px) { #dmv-fab { bottom: 80px; } }
