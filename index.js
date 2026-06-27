@@ -85,12 +85,25 @@ let settings = { ...DEFAULT_SETTINGS };
 let isRunning = false;
 let fallbackChatData = null;
 let lastApiError = '';
+let uidCounter = 0;
+let initialized = false;
+function uid(p) { return p + Date.now().toString(36) + (uidCounter++); }
+function numOr(id, def) { const n = parseInt(val(id), 10); return Number.isFinite(n) ? n : def; }
+function notify(msg) {
+    if (!msg) return;
+    const m = String(msg).slice(0, 200);
+    if (typeof toastr !== 'undefined' && toastr.error) toastr.error(m, 'Multiverse');
+    showApiStatus(m, 'error');
+}
+function capChat(v) { if (v.dmChat.length > 60) v.dmChat = v.dmChat.slice(-60); }
 
 // =============================================================================
 // Init
 // =============================================================================
 
 export async function init() {
+    if (initialized) return;
+    initialized = true;
     console.log('[Multiverse] Initializing...');
     loadSettings();
     injectSettingsUI();
@@ -102,6 +115,8 @@ export async function init() {
     eventSource.on(event_types.GENERATION_STARTED, onGenerationStarted);
     eventSource.on(event_types.CHAT_CHANGED, onChatChanged);
 
+    injectVerse();
+    applyWeatherFx();
     console.log('[Multiverse] Ready!');
 }
 
@@ -139,15 +154,36 @@ function getChatData() {
 
 function saveChatData(data) {
     fallbackChatData = data;
-    try { const ctx = getContext(); if (ctx.chat_metadata) ctx.chat_metadata[CHAT_META_KEY] = data; }
-    catch (e) { console.warn('[Multiverse] save chat failed:', e); }
+    try {
+        const ctx = getContext();
+        if (ctx.chat_metadata) ctx.chat_metadata[CHAT_META_KEY] = data;
+        // Flush chat_metadata so the active-verse binding survives a reload
+        if (typeof ctx.saveMetadataDebounced === 'function') ctx.saveMetadataDebounced();
+        else if (typeof ctx.saveMetadata === 'function') ctx.saveMetadata();
+    } catch (e) { console.warn('[Multiverse] save chat failed:', e); }
 }
 
 function normalizeVerse(v) {
     if (!v) return v;
+    if (!v.scene || typeof v.scene !== 'object') v.scene = { weather: '', time: '', mood: '', location: '', threads: [], currently: '' };
+    if (!Array.isArray(v.scene.threads)) v.scene.threads = [];
+    if (!v.world || typeof v.world !== 'object') v.world = { locations: [] };
+    if (!Array.isArray(v.world.locations)) v.world.locations = [];
+    if (!v.options || typeof v.options !== 'object') v.options = { locations: [], people: [] };
+    if (!Array.isArray(v.dmChat)) v.dmChat = [];
+    if (typeof v.premise !== 'string') v.premise = '';
+    if (typeof v.timeline !== 'string') v.timeline = '';
+    if (typeof v.summary !== 'string') v.summary = '';
+    if (!Number.isFinite(v.sceneDepth)) v.sceneDepth = 3;
+    if (!Number.isFinite(v.summaryDepth)) v.summaryDepth = 10;
+    if (!Number.isFinite(v.timelineDepth)) v.timelineDepth = 20;
+    if (!Number.isFinite(v.premiseDepth)) v.premiseDepth = 6;
+    if (!Number.isFinite(v.timelineCadence)) v.timelineCadence = 5;
+    if (!Number.isFinite(v.charCadence)) v.charCadence = 3;
+    if (!Number.isFinite(v.summaryUpToPast)) v.summaryUpToPast = 3;
     if (!Array.isArray(v.cast)) {
         const old = (v.scene && Array.isArray(v.scene.characters)) ? v.scene.characters : [];
-        v.cast = old.map((c, i) => ({ id: `c${Date.now()}_${i}`, name: c.name, description: c.note || '', auto: c.auto || '', present: true }));
+        v.cast = old.map((c) => ({ id: uid('c'), name: c.name, description: c.note || '', auto: c.auto || '', present: true }));
     }
     if (v.scene && 'characters' in v.scene) delete v.scene.characters;
     return v;
@@ -203,9 +239,12 @@ async function testExternalAPI() {
 
 function extractJSON(text) {
     if (!text) return null;
-    try { return JSON.parse(text); } catch (e) { /* slice */ }
-    const s = text.indexOf('{'), e = text.lastIndexOf('}');
-    if (s !== -1 && e > s) { try { return JSON.parse(text.slice(s, e + 1)); } catch (x) { /* */ } }
+    let t = String(text).trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+    try { return JSON.parse(t); } catch (e) { /* slice */ }
+    const s = t.indexOf('{'), e = t.lastIndexOf('}');
+    if (s !== -1 && e > s) { try { return JSON.parse(t.slice(s, e + 1)); } catch (x) { /* */ } }
+    const as = t.indexOf('['), ae = t.lastIndexOf(']');
+    if (as !== -1 && ae > as) { try { return JSON.parse(t.slice(as, ae + 1)); } catch (x) { /* */ } }
     return null;
 }
 
@@ -350,6 +389,7 @@ async function runDM() {
     const recent = getRecentMessages(settings.messageDepth);
     if (!recent.length) return;
 
+    const startId = v.id;
     const updateTimeline = (v.turnsSinceTimeline || 0) >= v.timelineCadence;
 
     isRunning = true;
@@ -359,8 +399,10 @@ async function runDM() {
             [{ role: 'system', content: getPrompt('dm') }, { role: 'user', content: buildDMUserPrompt(v, recent, updateTimeline) }],
             { maxTokens: 1500, temperature: 0.8 }
         );
+        if (!raw) { notify(lastApiError || 'DM call failed.'); return; }
         const res = extractJSON(raw);
-        if (!res) { console.warn('[Multiverse] DM unparseable'); return; }
+        if (!res) { notify('DM reply was not valid JSON.'); return; }
+        if (getActiveVerse()?.id !== startId) return;
 
         if (res.scene && typeof res.scene === 'object') {
             const s = res.scene;
@@ -368,7 +410,7 @@ async function runDM() {
             v.scene.time = s.time ?? v.scene.time;
             v.scene.mood = s.mood ?? v.scene.mood;
             v.scene.location = s.location ?? v.scene.location;
-            if (Array.isArray(s.characters)) {
+            if (Array.isArray(s.characters) && s.characters.length) {
                 const here = new Set(s.characters.filter(c => c && c.name).map(c => c.name.toLowerCase()));
                 // toggle presence without deleting roster entries or touching descriptions
                 for (const c of v.cast) c.present = here.has(c.name.toLowerCase());
@@ -376,7 +418,7 @@ async function runDM() {
                 for (const c of s.characters) {
                     if (!c || !c.name) continue;
                     if (!v.cast.find(x => x.name.toLowerCase() === c.name.toLowerCase())) {
-                        v.cast.push({ id: `c${Date.now()}_${v.cast.length}`, name: c.name, description: c.note || '', auto: '', present: true });
+                        v.cast.push({ id: uid('c'), name: c.name, description: c.note || '', auto: '', present: true });
                     }
                 }
             }
@@ -385,7 +427,8 @@ async function runDM() {
         if (typeof res.currently === 'string' && res.currently.trim()) v.scene.currently = res.currently.trim();
 
         if (updateTimeline && typeof res.timeline === 'string' && res.timeline.trim()) {
-            v.timeline = res.timeline.trim();
+            if (timelineWriteOk(v.timeline, res.timeline)) v.timeline = res.timeline.trim();
+            else console.warn('[Multiverse] DM dropped the {bookmark}; keeping previous timeline');
             v.turnsSinceTimeline = 0;
         } else {
             v.turnsSinceTimeline = (v.turnsSinceTimeline || 0) + 1;
@@ -410,10 +453,12 @@ async function runDM() {
 
 async function regenerateSummary() {
     const v = getActiveVerse();
-    if (!v) return;
+    if (!v || isRunning) return;
+    const startId = v.id;
     const lines = (v.timeline || '').split('\n').map(s => s.trim()).filter(Boolean);
     const cutoff = Math.max(0, lines.length - (v.summaryUpToPast || 3));
     const toSummarize = lines.slice(0, cutoff).join('\n');
+    isRunning = true;
     setProcessing(true);
     try {
         const raw = await callExternalAPI([
@@ -421,12 +466,13 @@ async function regenerateSummary() {
             { role: 'user', content: `VERSE: ${v.name}\nPREMISE: ${v.premise || '(none)'}\n\nEVENTS TO SUMMARIZE (older beats; the most recent ${v.summaryUpToPast} are intentionally excluded):\n${toSummarize || '(nothing yet)'}\n\nWrite the condensed second-person background.` }
         ], { maxTokens: 700, temperature: 0.4 });
         if (raw && raw.trim()) {
+            if (getActiveVerse()?.id !== startId) return;
             v.summary = raw.trim();
             saveSettings();
             injectVerse();
             setVal('dmv-summary', v.summary);
-        }
-    } finally { setProcessing(false); }
+        } else { notify(lastApiError || 'Summary generation failed.'); }
+    } finally { isRunning = false; setProcessing(false); }
 }
 
 // =============================================================================
@@ -435,7 +481,9 @@ async function regenerateSummary() {
 
 async function suggestOptions(kind) {
     const v = getActiveVerse();
-    if (!v) return;
+    if (!v || isRunning) return;
+    const startId = v.id;
+    isRunning = true;
     setProcessing(true);
     try {
         const known = kind === 'locations'
@@ -448,11 +496,12 @@ async function suggestOptions(kind) {
         let arr = extractJSON(raw);
         if (!Array.isArray(arr)) { const m = (raw || '').match(/\[[\s\S]*\]/); if (m) { try { arr = JSON.parse(m[0]); } catch (e) { /* */ } } }
         if (Array.isArray(arr)) {
+            if (getActiveVerse()?.id !== startId) return;
             v.options[kind] = arr.filter(o => o && o.name).slice(0, 3);
             saveSettings();
             renderOptions();
-        }
-    } finally { setProcessing(false); }
+        } else { notify(lastApiError || 'Suggestion failed.'); }
+    } finally { isRunning = false; setProcessing(false); }
 }
 
 function acceptOption(kind, index) {
@@ -461,7 +510,7 @@ function acceptOption(kind, index) {
     const opt = v.options[kind]?.[index];
     if (!opt) return;
     if (kind === 'locations') v.world.locations.push({ name: opt.name, note: opt.note || '' });
-    else v.cast.push({ id: `c${Date.now()}_${v.cast.length}`, name: opt.name, description: opt.note || '', auto: '', present: false });
+    else v.cast.push({ id: uid('c'), name: opt.name, description: opt.note || '', auto: '', present: false });
     v.options[kind].splice(index, 1);
     saveSettings();
     injectVerse();
@@ -479,9 +528,16 @@ function timelineUpToBookmark(text) {
     if (!text) return '';
     const lines = text.split('\n');
     let bookmark = -1;
-    for (let i = 0; i < lines.length; i++) if (/\{.*\}/.test(lines[i])) { bookmark = i; break; }
+    for (let i = 0; i < lines.length; i++) if (/\{[^{}]*\}/.test(lines[i])) { bookmark = i; break; }
     const slice = bookmark === -1 ? lines : lines.slice(0, bookmark + 1);
-    return slice.map(l => l.replace(/[{}]/g, '')).join('\n').trim();
+    return slice.map((l, i) => i === bookmark ? l.replace(/[{}]/g, '') : l).join('\n').trim();
+}
+
+// Reject a timeline write only if it would silently drop an existing {bookmark} (spoiler-gate guard)
+function timelineWriteOk(oldText, newText) {
+    const had = /\{[^{}]*\}/.test(oldText || '');
+    const has = /\{[^{}]*\}/.test(newText || '');
+    return !(had && !has);
 }
 
 function clearInjection() {
@@ -509,12 +565,12 @@ function injectVerse() {
     const off = v.cast.filter(c => c.auto && c.auto.trim());
     const offscreen = off.length ? `<offscreen>\n${off.map(c => `${c.name}: ${c.auto.trim()}`).join('\n')}\n</offscreen>` : '';
 
-    setExtensionPrompt(SCENE_PROMPT_ID, scene, extension_prompt_types.IN_CHAT, v.sceneDepth || 3);
-    setExtensionPrompt(SUMMARY_PROMPT_ID, summary, extension_prompt_types.IN_CHAT, v.summaryDepth || 10);
-    setExtensionPrompt(TIMELINE_PROMPT_ID, timeline, extension_prompt_types.IN_CHAT, v.timelineDepth || 20);
-    setExtensionPrompt(PREMISE_PROMPT_ID, premise, extension_prompt_types.IN_CHAT, v.premiseDepth || 6);
-    setExtensionPrompt(CAST_PROMPT_ID, castBlock, extension_prompt_types.IN_CHAT, v.sceneDepth || 3);
-    setExtensionPrompt(OFFSCREEN_PROMPT_ID, offscreen, extension_prompt_types.IN_CHAT, v.sceneDepth || 3);
+    setExtensionPrompt(SCENE_PROMPT_ID, scene, extension_prompt_types.IN_CHAT, v.sceneDepth ?? 3);
+    setExtensionPrompt(SUMMARY_PROMPT_ID, summary, extension_prompt_types.IN_CHAT, v.summaryDepth ?? 10);
+    setExtensionPrompt(TIMELINE_PROMPT_ID, timeline, extension_prompt_types.IN_CHAT, v.timelineDepth ?? 20);
+    setExtensionPrompt(PREMISE_PROMPT_ID, premise, extension_prompt_types.IN_CHAT, v.premiseDepth ?? 6);
+    setExtensionPrompt(CAST_PROMPT_ID, castBlock, extension_prompt_types.IN_CHAT, v.sceneDepth ?? 3);
+    setExtensionPrompt(OFFSCREEN_PROMPT_ID, offscreen, extension_prompt_types.IN_CHAT, v.sceneDepth ?? 3);
 }
 
 // =============================================================================
@@ -545,7 +601,10 @@ function extractEditBlock(text) {
 function applyWorldkeeperEdit(v, patch) {
     const changed = [];
     if (typeof patch.premise === 'string') { v.premise = patch.premise.trim(); changed.push('premise'); }
-    if (typeof patch.timeline === 'string') { v.timeline = patch.timeline.trim(); changed.push('timeline'); }
+    if (typeof patch.timeline === 'string') {
+        if (timelineWriteOk(v.timeline, patch.timeline)) { v.timeline = patch.timeline.trim(); changed.push('timeline'); }
+        else changed.push('timeline (skipped — would drop the {bookmark})');
+    }
     if (typeof patch.summary === 'string') { v.summary = patch.summary.trim(); changed.push('summary'); }
     if (patch.scene && typeof patch.scene === 'object') {
         for (const k of ['weather', 'time', 'mood', 'location']) if (typeof patch.scene[k] === 'string') v.scene[k] = patch.scene[k];
@@ -556,7 +615,7 @@ function applyWorldkeeperEdit(v, patch) {
         let n = 0;
         for (const c of patch.addCast) {
             if (c && c.name && !v.cast.find(x => x.name.toLowerCase() === c.name.toLowerCase())) {
-                v.cast.push({ id: `c${Date.now()}_${v.cast.length}`, name: c.name, description: c.description || '', auto: '', present: false });
+                v.cast.push({ id: uid('c'), name: c.name, description: c.description || '', auto: '', present: false });
                 n++;
             }
         }
@@ -590,7 +649,10 @@ function applyWorldkeeperEdit(v, patch) {
 async function chatWithDM(message) {
     const v = getActiveVerse();
     if (!v || !message.trim()) return;
+    if (isRunning) { notify('Busy — give it a sec, then try again.'); return; }
+    const startId = v.id;
     v.dmChat.push({ role: 'user', content: message.trim() });
+    capChat(v);
     saveSettings();
     renderDMChat();
     const recent = getRecentMessages(settings.messageDepth);
@@ -603,10 +665,12 @@ CANON TIMELINE:\n${v.timeline || '(empty)'}\n\nSCENE: ${v.scene.location || '?'}
 CURRENT ROLEPLAY (live conversation between the user and their scene partner — this is what's happening right now):
 ${recent.join('\n') || '(nothing yet)'}`;
     const history = v.dmChat.slice(-12).map(m => ({ role: m.role, content: m.content }));
+    isRunning = true;
     setProcessing(true);
     try {
         const reply = await callExternalAPI([{ role: 'system', content: sys + '\n\n' + EDIT_PROTOCOL }, ...history], { maxTokens: 1200, temperature: 0.7 });
-        if (!reply || !reply.trim()) return;
+        if (!reply || !reply.trim()) { notify(lastApiError || 'World-keeper call failed.'); return; }
+        if (getActiveVerse()?.id !== startId) return;
         let display = reply.trim();
         let changed = [];
         const eb = extractEditBlock(display);
@@ -616,10 +680,11 @@ ${recent.join('\n') || '(nothing yet)'}`;
             if (changed.length) display += `\n\n✏️ applied: ${changed.join(', ')}`;
         }
         v.dmChat.push({ role: 'assistant', content: display });
+        capChat(v);
         saveSettings();
         if (changed.length) { injectVerse(); applyWeatherFx(); updateUI(); }
         else { renderDMChat(); }
-    } finally { setProcessing(false); }
+    } finally { isRunning = false; setProcessing(false); }
 }
 
 // =============================================================================
@@ -628,11 +693,13 @@ ${recent.join('\n') || '(nothing yet)'}`;
 
 async function simulateBackground() {
     const v = getActiveVerse();
-    if (!v || !v.autonomousChars) return;
+    if (!v || !v.autonomousChars || isRunning) return;
+    const startId = v.id;
     const recent = getRecentMessages(settings.messageDepth).join(' ').toLowerCase();
     // Only re-roll characters NOT mentioned in the RP — mentioned ones are the GM's job.
     const targets = v.cast.filter(c => c.name && !recent.includes(c.name.toLowerCase()));
     if (!targets.length) { v.turnsSinceChars = 0; return; }
+    isRunning = true;
     setProcessing(true);
     try {
         const raw = await callExternalAPI([
@@ -647,10 +714,11 @@ async function simulateBackground() {
                 const c = v.cast.find(x => x.name.toLowerCase() === String(o.name).toLowerCase());
                 if (c) c.auto = o.auto || c.auto;
             }
+            if (getActiveVerse()?.id !== startId) return;
             v.turnsSinceChars = 0;
             saveSettings(); injectVerse(); updateSceneDisplay();
         }
-    } finally { setProcessing(false); }
+    } finally { isRunning = false; setProcessing(false); }
 }
 
 // =============================================================================
@@ -864,9 +932,9 @@ function bindPanelEvents() {
     bind('dmv-add-char', 'click', addCharacter);
 
     bind('dmv-premise', 'input', debounce(() => { const v = getActiveVerse(); if (v) { v.premise = val('dmv-premise'); saveSettings(); injectVerse(); } }, 600));
-    bind('dmv-premise-depth', 'change', () => { const v = getActiveVerse(); if (v) { v.premiseDepth = parseInt(val('dmv-premise-depth')) || 6; saveSettings(); injectVerse(); } });
+    bind('dmv-premise-depth', 'change', () => { const v = getActiveVerse(); if (v) { v.premiseDepth = numOr('dmv-premise-depth', 6); saveSettings(); injectVerse(); } });
     bind('dmv-autonomous', 'change', e => { const v = getActiveVerse(); if (v) { v.autonomousChars = e.target.checked; saveSettings(); } });
-    bind('dmv-char-cadence', 'change', () => { const v = getActiveVerse(); if (v) { v.charCadence = parseInt(val('dmv-char-cadence')) || 3; saveSettings(); } });
+    bind('dmv-char-cadence', 'change', () => { const v = getActiveVerse(); if (v) { v.charCadence = numOr('dmv-char-cadence', 3); saveSettings(); } });
 
     bind('dmv-prompts-toggle', 'click', () => document.getElementById('dmv-prompts')?.classList.toggle('dmv-visible'));
     bind('dmv-prompt-dm', 'input', debounce(() => { settings.prompts.dm = val('dmv-prompt-dm'); saveSettings(); }, 600));
@@ -877,10 +945,10 @@ function bindPanelEvents() {
     bind('dmv-summary', 'input', debounce(() => { const v = getActiveVerse(); if (v) { v.summary = val('dmv-summary'); saveSettings(); injectVerse(); } }, 600));
     bind('dmv-locations', 'input', debounce(() => { const v = getActiveVerse(); if (!v) return; v.world.locations = val('dmv-locations').split('\n').map(s => s.trim()).filter(Boolean).map(name => ({ name, note: '' })); saveSettings(); }, 600));
 
-    bind('dmv-tl-depth', 'change', () => { const v = getActiveVerse(); if (v) { v.timelineDepth = parseInt(val('dmv-tl-depth')) || 20; saveSettings(); injectVerse(); } });
-    bind('dmv-tl-cadence', 'change', () => { const v = getActiveVerse(); if (v) { v.timelineCadence = parseInt(val('dmv-tl-cadence')) || 5; saveSettings(); } });
-    bind('dmv-sum-past', 'change', () => { const v = getActiveVerse(); if (v) { v.summaryUpToPast = parseInt(val('dmv-sum-past')) || 3; saveSettings(); } });
-    bind('dmv-sum-depth', 'change', () => { const v = getActiveVerse(); if (v) { v.summaryDepth = parseInt(val('dmv-sum-depth')) || 10; saveSettings(); injectVerse(); } });
+    bind('dmv-tl-depth', 'change', () => { const v = getActiveVerse(); if (v) { v.timelineDepth = numOr('dmv-tl-depth', 20); saveSettings(); injectVerse(); } });
+    bind('dmv-tl-cadence', 'change', () => { const v = getActiveVerse(); if (v) { v.timelineCadence = numOr('dmv-tl-cadence', 5); saveSettings(); } });
+    bind('dmv-sum-past', 'change', () => { const v = getActiveVerse(); if (v) { v.summaryUpToPast = numOr('dmv-sum-past', 3); saveSettings(); } });
+    bind('dmv-sum-depth', 'change', () => { const v = getActiveVerse(); if (v) { v.summaryDepth = numOr('dmv-sum-depth', 10); saveSettings(); injectVerse(); } });
 
     bind('dmv-dm-send', 'click', sendDM);
     bind('dmv-dm-clear', 'click', clearDMChat);
@@ -1040,7 +1108,7 @@ function renderOptions() {
 function addCharacter() {
     const v = getActiveVerse();
     if (!v) return;
-    v.cast.push({ id: `c${Date.now()}_${v.cast.length}`, name: 'New character', description: '', auto: '', present: true });
+    v.cast.push({ id: uid('c'), name: 'New character', description: '', auto: '', present: true });
     saveSettings();
     renderCast();
     injectVerse();
