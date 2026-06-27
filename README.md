@@ -85,4 +85,4 @@ The **`{bookmark}`** in the Canon Timeline marks "now." Everything after it is y
 
 ## Credits
 
-Built by **Lei** ([@dan0dandeleon11](https://github.com/dan0dandeleon11)), on the engine of the `caleb-media-companion` extension. Scene-discipline and weather ideas adapted from the RPG Companion lineage.
+Built by **dan** ([@dan0dandeleon11](https://github.com/dan0dandeleon11)), on the engine of the `caleb-media-companion` extension. Scene-discipline and weather ideas adapted from the RPG Companion lineage.

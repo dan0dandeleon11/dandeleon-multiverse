@@ -5,7 +5,7 @@
     "optional": [],
     "js": "index.js",
     "css": "style.css",
-    "author": "Lei",
+    "author": "dan",
     "version": "0.1.0",
     "description": "Multiverse RP world-keeper. An external DM manages each verse's canon, live scene (weather/map/cast), and a spoiler-gated chronicle — injecting a compact present-scene at shallow depth and a condensed long-term memory at deep depth, so the context window never caps your roleplays.",
     "type": "module"

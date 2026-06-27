@@ -8,7 +8,7 @@
  *   - <canon_timeline> deep    (depth ~20) — beat list, up to the {bookmark}
  * Entries after the {bookmark} stay dark (spoiler gate).
  *
- * Built on the caleb-media-companion engine. By Lei.
+ * Built on the caleb-media-companion engine. By dan.
  */
 
 import { eventSource, event_types, extension_prompt_types, setExtensionPrompt } from '../../../../script.js';
