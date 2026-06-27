@@ -521,6 +521,72 @@ function injectVerse() {
 // World-keeper chat
 // =============================================================================
 
+const EDIT_PROTOCOL = `You can EDIT this universe directly. When the user asks you to change something (premise, timeline, summary, scene, characters, locations), reply normally, then append ONE fenced block at the very end:
+<edit>
+{ "premise": "full new premise (optional)",
+  "timeline": "full new timeline text, keep the {bookmark} line (optional)",
+  "summary": "full new summary (optional)",
+  "scene": { "weather":"", "time":"", "mood":"", "location":"" } (optional — only fields you change),
+  "addCast": [{"name":"","description":""}] (optional),
+  "updateCast": [{"name":"","description":""}] (optional, matched by name),
+  "removeCast": ["name"] (optional),
+  "addLocations": ["name"] (optional) }
+</edit>
+Include the <edit> block ONLY when the user actually wants a change, and only the keys you're changing. For questions or brainstorming, omit it entirely.`;
+
+function extractEditBlock(text) {
+    const m = text.match(/<edit>([\s\S]*?)<\/edit>/i);
+    if (!m) return null;
+    const patch = extractJSON(m[1]);
+    if (!patch) return null;
+    return { patch, cleanText: text.replace(m[0], '').trim() };
+}
+
+function applyWorldkeeperEdit(v, patch) {
+    const changed = [];
+    if (typeof patch.premise === 'string') { v.premise = patch.premise.trim(); changed.push('premise'); }
+    if (typeof patch.timeline === 'string') { v.timeline = patch.timeline.trim(); changed.push('timeline'); }
+    if (typeof patch.summary === 'string') { v.summary = patch.summary.trim(); changed.push('summary'); }
+    if (patch.scene && typeof patch.scene === 'object') {
+        for (const k of ['weather', 'time', 'mood', 'location']) if (typeof patch.scene[k] === 'string') v.scene[k] = patch.scene[k];
+        if (Array.isArray(patch.scene.threads)) v.scene.threads = patch.scene.threads.filter(Boolean);
+        changed.push('scene');
+    }
+    if (Array.isArray(patch.addCast)) {
+        let n = 0;
+        for (const c of patch.addCast) {
+            if (c && c.name && !v.cast.find(x => x.name.toLowerCase() === c.name.toLowerCase())) {
+                v.cast.push({ id: `c${Date.now()}_${v.cast.length}`, name: c.name, description: c.description || '', auto: '', present: false });
+                n++;
+            }
+        }
+        if (n) changed.push(`+${n} character${n > 1 ? 's' : ''}`);
+    }
+    if (Array.isArray(patch.updateCast)) {
+        let n = 0;
+        for (const c of patch.updateCast) {
+            if (!c || !c.name) continue;
+            const e = v.cast.find(x => x.name.toLowerCase() === c.name.toLowerCase());
+            if (e && typeof c.description === 'string') { e.description = c.description; n++; }
+        }
+        if (n) changed.push('character edits');
+    }
+    if (Array.isArray(patch.removeCast)) {
+        const rm = new Set(patch.removeCast.map(s => String(s).toLowerCase()));
+        const before = v.cast.length;
+        v.cast = v.cast.filter(c => !rm.has(c.name.toLowerCase()));
+        if (v.cast.length < before) changed.push('character removed');
+    }
+    if (Array.isArray(patch.addLocations)) {
+        let n = 0;
+        for (const nm of patch.addLocations) {
+            if (nm && !v.world.locations.find(l => l.name.toLowerCase() === String(nm).toLowerCase())) { v.world.locations.push({ name: String(nm), note: '' }); n++; }
+        }
+        if (n) changed.push('locations');
+    }
+    return changed;
+}
+
 async function chatWithDM(message) {
     const v = getActiveVerse();
     if (!v || !message.trim()) return;
@@ -539,8 +605,20 @@ ${recent.join('\n') || '(nothing yet)'}`;
     const history = v.dmChat.slice(-12).map(m => ({ role: m.role, content: m.content }));
     setProcessing(true);
     try {
-        const reply = await callExternalAPI([{ role: 'system', content: sys }, ...history], { maxTokens: 800, temperature: 0.7 });
-        if (reply && reply.trim()) { v.dmChat.push({ role: 'assistant', content: reply.trim() }); saveSettings(); renderDMChat(); }
+        const reply = await callExternalAPI([{ role: 'system', content: sys + '\n\n' + EDIT_PROTOCOL }, ...history], { maxTokens: 1200, temperature: 0.7 });
+        if (!reply || !reply.trim()) return;
+        let display = reply.trim();
+        let changed = [];
+        const eb = extractEditBlock(display);
+        if (eb) {
+            display = eb.cleanText || '(updated the world)';
+            changed = applyWorldkeeperEdit(v, eb.patch);
+            if (changed.length) display += `\n\n✏️ applied: ${changed.join(', ')}`;
+        }
+        v.dmChat.push({ role: 'assistant', content: display });
+        saveSettings();
+        if (changed.length) { injectVerse(); applyWeatherFx(); updateUI(); }
+        else { renderDMChat(); }
     } finally { setProcessing(false); }
 }
 
