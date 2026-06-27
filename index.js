@@ -20,6 +20,7 @@ const SUMMARY_PROMPT_ID = 'dandeleon_multiverse_summary';
 const TIMELINE_PROMPT_ID = 'dandeleon_multiverse_timeline';
 const PREMISE_PROMPT_ID = 'dandeleon_multiverse_premise';
 const OFFSCREEN_PROMPT_ID = 'dandeleon_multiverse_offscreen';
+const CAST_PROMPT_ID = 'dandeleon_multiverse_cast';
 const STORAGE_KEY = 'dandeleon_multiverse_settings';
 const CHAT_META_KEY = 'dandeleon_multiverse';
 
@@ -65,8 +66,9 @@ function defaultVerse(id, name) {
         summaryDepth: 10,
         summaryUpToPast: 3,
         // Live scene (shallow)
-        scene: { weather: '', time: '', mood: '', location: '', characters: [], threads: [], currently: '' },
+        scene: { weather: '', time: '', mood: '', location: '', threads: [], currently: '' },
         sceneDepth: 3,
+        cast: [],
         prose: '',
         // Autonomous background characters
         autonomousChars: false,
@@ -140,10 +142,23 @@ function saveChatData(data) {
     catch (e) { console.warn('[Multiverse] save chat failed:', e); }
 }
 
+function normalizeVerse(v) {
+    if (!v) return v;
+    if (!Array.isArray(v.cast)) {
+        const old = (v.scene && Array.isArray(v.scene.characters)) ? v.scene.characters : [];
+        v.cast = old.map((c, i) => ({ id: `c${Date.now()}_${i}`, name: c.name, description: c.note || '', auto: c.auto || '', present: true }));
+    }
+    if (v.scene && 'characters' in v.scene) delete v.scene.characters;
+    return v;
+}
+
 function getActiveVerse() {
     const cd = getChatData();
-    return cd.activeVerseId ? (settings.verseLibrary[cd.activeVerseId] || null) : null;
+    const v = cd.activeVerseId ? (settings.verseLibrary[cd.activeVerseId] || null) : null;
+    return v ? normalizeVerse(v) : null;
 }
+
+function findCast(v, id) { return (v.cast || []).find(c => c.id === id); }
 
 // =============================================================================
 // External API
@@ -286,7 +301,7 @@ function getRecentMessages(depth) {
 }
 
 function buildDMUserPrompt(v, recent, updateTimeline) {
-    const cast = v.scene.characters.map(c => `${c.name}${c.note ? ` (${c.note})` : ''}`).join(', ') || '(none set)';
+    const cast = v.cast.filter(c => c.present).map(c => `${c.name}${c.description ? ` (${c.description})` : ''}`).join(', ') || '(none set)';
     return `VERSE: ${v.name}
 
 UNIVERSE PREMISE:
@@ -338,10 +353,18 @@ async function runDM() {
             v.scene.time = s.time ?? v.scene.time;
             v.scene.mood = s.mood ?? v.scene.mood;
             v.scene.location = s.location ?? v.scene.location;
-            if (Array.isArray(s.characters)) v.scene.characters = s.characters.filter(c => c && c.name).map(c => {
-                const prev = v.scene.characters.find(p => p.name === c.name);
-                return { name: c.name, note: c.note || '', auto: prev?.auto || '' };
-            });
+            if (Array.isArray(s.characters)) {
+                const here = new Set(s.characters.filter(c => c && c.name).map(c => c.name.toLowerCase()));
+                // toggle presence without deleting roster entries or touching descriptions
+                for (const c of v.cast) c.present = here.has(c.name.toLowerCase());
+                // fold in any newly-introduced characters
+                for (const c of s.characters) {
+                    if (!c || !c.name) continue;
+                    if (!v.cast.find(x => x.name.toLowerCase() === c.name.toLowerCase())) {
+                        v.cast.push({ id: `c${Date.now()}_${v.cast.length}`, name: c.name, description: c.note || '', auto: '', present: true });
+                    }
+                }
+            }
             if (Array.isArray(s.threads)) v.scene.threads = s.threads.filter(Boolean);
         }
         if (typeof res.currently === 'string' && res.currently.trim()) v.scene.currently = res.currently.trim();
@@ -402,7 +425,7 @@ async function suggestOptions(kind) {
     try {
         const known = kind === 'locations'
             ? v.world.locations.map(l => l.name).join(', ')
-            : v.scene.characters.map(c => c.name).join(', ');
+            : v.cast.map(c => c.name).join(', ');
         const raw = await callExternalAPI([
             { role: 'system', content: `You propose fresh ${kind} for a roleplay world. Return ONLY a JSON array of exactly 3 objects: [{"name":"","note":"one short evocative line"}]. No prose.` },
             { role: 'user', content: `VERSE: ${v.name}\nLocation/scene: ${v.scene.location || '?'}\nAlready known: ${known || '(none)'}\n\nPropose 3 new ${kind} that fit this world.` }
@@ -423,12 +446,14 @@ function acceptOption(kind, index) {
     const opt = v.options[kind]?.[index];
     if (!opt) return;
     if (kind === 'locations') v.world.locations.push({ name: opt.name, note: opt.note || '' });
-    else v.scene.characters.push({ name: opt.name, note: opt.note || '' });
+    else v.cast.push({ id: `c${Date.now()}_${v.cast.length}`, name: opt.name, description: opt.note || '', auto: '', present: false });
     v.options[kind].splice(index, 1);
     saveSettings();
+    injectVerse();
     updateSceneDisplay();
     setVal('dmv-locations', v.world.locations.map(l => l.name).join('\n'));
     renderOptions();
+    renderCast();
 }
 
 // =============================================================================
@@ -450,6 +475,7 @@ function clearInjection() {
     setExtensionPrompt(TIMELINE_PROMPT_ID, '', extension_prompt_types.IN_CHAT, 20);
     setExtensionPrompt(PREMISE_PROMPT_ID, '', extension_prompt_types.IN_CHAT, 6);
     setExtensionPrompt(OFFSCREEN_PROMPT_ID, '', extension_prompt_types.IN_CHAT, 3);
+    setExtensionPrompt(CAST_PROMPT_ID, '', extension_prompt_types.IN_CHAT, 3);
 }
 
 function injectVerse() {
@@ -462,13 +488,17 @@ function injectVerse() {
     const tl = timelineUpToBookmark(v.timeline);
     const timeline = tl ? `<canon_timeline>\n${tl}\n</canon_timeline>` : '';
     const premise = v.premise?.trim() ? `<universe>\n${v.premise.trim()}\n</universe>` : '';
-    const off = v.scene.characters.filter(c => c.auto && c.auto.trim());
+    const present = v.cast.filter(c => c.present);
+    const described = present.filter(c => c.description && c.description.trim());
+    const castBlock = described.length ? `<cast>\n${described.map(c => `${c.name}: ${c.description.trim()}`).join('\n')}\n</cast>` : '';
+    const off = v.cast.filter(c => c.auto && c.auto.trim());
     const offscreen = off.length ? `<offscreen>\n${off.map(c => `${c.name}: ${c.auto.trim()}`).join('\n')}\n</offscreen>` : '';
 
     setExtensionPrompt(SCENE_PROMPT_ID, scene, extension_prompt_types.IN_CHAT, v.sceneDepth || 3);
     setExtensionPrompt(SUMMARY_PROMPT_ID, summary, extension_prompt_types.IN_CHAT, v.summaryDepth || 10);
     setExtensionPrompt(TIMELINE_PROMPT_ID, timeline, extension_prompt_types.IN_CHAT, v.timelineDepth || 20);
     setExtensionPrompt(PREMISE_PROMPT_ID, premise, extension_prompt_types.IN_CHAT, v.premiseDepth || 6);
+    setExtensionPrompt(CAST_PROMPT_ID, castBlock, extension_prompt_types.IN_CHAT, v.sceneDepth || 3);
     setExtensionPrompt(OFFSCREEN_PROMPT_ID, offscreen, extension_prompt_types.IN_CHAT, v.sceneDepth || 3);
 }
 
@@ -486,7 +516,7 @@ async function chatWithDM(message) {
 
 UNIVERSE: "${v.name}"
 PREMISE: ${v.premise || '(none)'}
-CANON TIMELINE:\n${v.timeline || '(empty)'}\n\nSCENE: ${v.scene.location || '?'} — ${v.scene.weather || '?'}; present: ${v.scene.characters.map(c => c.name).join(', ') || 'no one'}.`;
+CANON TIMELINE:\n${v.timeline || '(empty)'}\n\nSCENE: ${v.scene.location || '?'} — ${v.scene.weather || '?'}; present: ${v.cast.filter(c => c.present).map(c => c.name).join(', ') || 'no one'}.`;
     const history = v.dmChat.slice(-12).map(m => ({ role: m.role, content: m.content }));
     setProcessing(true);
     try {
@@ -504,7 +534,7 @@ async function simulateBackground() {
     if (!v || !v.autonomousChars) return;
     const recent = getRecentMessages(settings.messageDepth).join(' ').toLowerCase();
     // Only re-roll characters NOT mentioned in the RP — mentioned ones are the GM's job.
-    const targets = v.scene.characters.filter(c => c.name && !recent.includes(c.name.toLowerCase()));
+    const targets = v.cast.filter(c => c.name && !recent.includes(c.name.toLowerCase()));
     if (!targets.length) { v.turnsSinceChars = 0; return; }
     setProcessing(true);
     try {
@@ -517,7 +547,7 @@ async function simulateBackground() {
         if (Array.isArray(arr)) {
             for (const o of arr) {
                 if (!o || !o.name) continue;
-                const c = v.scene.characters.find(x => x.name.toLowerCase() === String(o.name).toLowerCase());
+                const c = v.cast.find(x => x.name.toLowerCase() === String(o.name).toLowerCase());
                 if (c) c.auto = o.auto || c.auto;
             }
             v.turnsSinceChars = 0;
@@ -645,6 +675,13 @@ function injectPanelUI() {
                     <div id="dmv-options"></div>
                 </div>
 
+                <!-- Cast roster -->
+                <div class="dmv-section">
+                    <label>Cast</label>
+                    <div id="dmv-cast"></div>
+                    <button class="dmv-btn dmv-btn-ok" id="dmv-add-char">+ Add character</button>
+                </div>
+
                 <!-- Autonomous background characters -->
                 <div class="dmv-section">
                     <label class="dmv-check"><input type="checkbox" id="dmv-autonomous"> Autonomous background characters</label>
@@ -727,6 +764,7 @@ function bindPanelEvents() {
     bind('dmv-suggest-loc', 'click', () => suggestOptions('locations'));
     bind('dmv-suggest-ppl', 'click', () => suggestOptions('people'));
     bind('dmv-sim-bg', 'click', () => simulateBackground());
+    bind('dmv-add-char', 'click', addCharacter);
 
     bind('dmv-premise', 'input', debounce(() => { const v = getActiveVerse(); if (v) { v.premise = val('dmv-premise'); saveSettings(); injectVerse(); } }, 600));
     bind('dmv-premise-depth', 'change', () => { const v = getActiveVerse(); if (v) { v.premiseDepth = parseInt(val('dmv-premise-depth')) || 6; saveSettings(); injectVerse(); } });
@@ -851,6 +889,7 @@ function updateUI() {
         updateSceneDisplay();
         updateProseDisplay();
         renderOptions();
+        renderCast();
         renderDMChat();
     }
     updateLibrary();
@@ -866,7 +905,7 @@ function updateSceneDisplay() {
     if (v.scene.time) chips.push(`<span class="dmv-chip">🕐 ${escapeHtml(v.scene.time)}</span>`);
     if (v.scene.mood) chips.push(`<span class="dmv-chip">🎭 ${escapeHtml(v.scene.mood)}</span>`);
     if (v.scene.location) chips.push(`<span class="dmv-chip">📍 ${escapeHtml(v.scene.location)}</span>`);
-    for (const c of v.scene.characters) chips.push(`<span class="dmv-chip dmv-chip-person" title="${escapeHtml(c.note || '')}">👤 ${escapeHtml(c.name)}</span>`);
+    for (const c of v.cast.filter(x => x.present)) chips.push(`<span class="dmv-chip dmv-chip-person" title="${escapeHtml(c.description || '')}">👤 ${escapeHtml(c.name)}</span>`);
     el.innerHTML = chips.join('') || '<span class="dmv-empty">No scene yet — Advance World or talk to the World-Keeper.</span>';
 }
 
@@ -889,6 +928,37 @@ function renderOptions() {
     }
     el.innerHTML = blocks.join('');
     el.querySelectorAll('.dmv-opt').forEach(node => node.addEventListener('click', () => acceptOption(node.dataset.kind, parseInt(node.dataset.i))));
+}
+
+function addCharacter() {
+    const v = getActiveVerse();
+    if (!v) return;
+    v.cast.push({ id: `c${Date.now()}_${v.cast.length}`, name: 'New character', description: '', auto: '', present: true });
+    saveSettings();
+    renderCast();
+    injectVerse();
+    updateSceneDisplay();
+}
+
+function renderCast() {
+    const el = document.getElementById('dmv-cast');
+    const v = getActiveVerse();
+    if (!el || !v) return;
+    if (!v.cast.length) { el.innerHTML = '<div class="dmv-empty">No characters yet. Add one, or let the DM / Suggest introduce them.</div>'; return; }
+    el.innerHTML = v.cast.map(c => `
+        <div class="dmv-castcard ${c.present ? 'present' : ''}" data-id="${c.id}">
+            <div class="dmv-castrow">
+                <input type="text" class="dmv-cast-name" data-id="${c.id}" value="${escapeHtml(c.name)}" placeholder="Name">
+                <label class="dmv-cast-present" title="In the current scene"><input type="checkbox" class="dmv-cast-here" data-id="${c.id}" ${c.present ? 'checked' : ''}> here</label>
+                <span class="dmv-cast-del fa-solid fa-xmark" data-id="${c.id}" title="Remove"></span>
+            </div>
+            <textarea class="dmv-cast-desc" data-id="${c.id}" rows="2" placeholder="Description…">${escapeHtml(c.description || '')}</textarea>
+            ${c.auto ? `<div class="dmv-cast-auto">↳ ${escapeHtml(c.auto)}</div>` : ''}
+        </div>`).join('');
+    el.querySelectorAll('.dmv-cast-name').forEach(n => n.addEventListener('input', debounce(e => { const c = findCast(v, e.target.dataset.id); if (c) { c.name = e.target.value; saveSettings(); } }, 600)));
+    el.querySelectorAll('.dmv-cast-desc').forEach(n => n.addEventListener('input', debounce(e => { const c = findCast(v, e.target.dataset.id); if (c) { c.description = e.target.value; saveSettings(); injectVerse(); } }, 600)));
+    el.querySelectorAll('.dmv-cast-here').forEach(n => n.addEventListener('change', e => { const c = findCast(v, e.target.dataset.id); if (c) { c.present = e.target.checked; saveSettings(); injectVerse(); updateSceneDisplay(); } }));
+    el.querySelectorAll('.dmv-cast-del').forEach(n => n.addEventListener('click', e => { v.cast = v.cast.filter(x => x.id !== e.target.dataset.id); saveSettings(); injectVerse(); updateSceneDisplay(); renderCast(); }));
 }
 
 function renderDMChat() {

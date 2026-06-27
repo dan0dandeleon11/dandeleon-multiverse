@@ -201,6 +201,21 @@
 
 .dmv-empty { font-size: 12px; opacity: 0.5; padding: 8px; text-align: center; }
 
+/* Cast roster */
+.dmv-castcard {
+    background: var(--dmv-field); border: 1px solid var(--dmv-border);
+    border-radius: 6px; padding: 8px; margin-bottom: 6px;
+    display: flex; flex-direction: column; gap: 6px;
+}
+.dmv-castcard.present { border-left: 3px solid var(--dmv-accent); }
+.dmv-castrow { display: flex; align-items: center; gap: 6px; }
+.dmv-cast-name { flex: 1; font-weight: 600; }
+.dmv-cast-present { display: flex; align-items: center; gap: 4px; font-size: 11px; opacity: 0.8; white-space: nowrap; }
+.dmv-cast-present input[type="checkbox"] { width: auto !important; }
+.dmv-cast-del { opacity: 0.4; padding: 4px; cursor: pointer; flex-shrink: 0; }
+.dmv-cast-del:hover { opacity: 1; color: #e74c3c; }
+.dmv-cast-auto { font-size: 11px; opacity: 0.6; font-style: italic; }
+
 /* Panel checkbox row */
 #dmv-panel .dmv-check { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
 #dmv-panel .dmv-check input[type="checkbox"] { width: auto !important; }
