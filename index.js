@@ -84,6 +84,7 @@ function defaultVerse(id, name) {
 let settings = { ...DEFAULT_SETTINGS };
 let isRunning = false;
 let fallbackChatData = null;
+let lastApiError = '';
 
 // =============================================================================
 // Init
@@ -165,7 +166,9 @@ function findCast(v, id) { return (v.cast || []).find(c => c.id === id); }
 // =============================================================================
 
 async function callExternalAPI(messages, opts = {}) {
-    if (!settings.apiKey) { console.warn('[Multiverse] no API key'); return null; }
+    lastApiError = '';
+    if (!settings.apiKey) { lastApiError = 'No API key — open ⚙ Change LLM, paste your key, hit Save.'; console.warn('[Multiverse]', lastApiError); return null; }
+    if (!settings.apiEndpoint) { lastApiError = 'No endpoint set.'; console.warn('[Multiverse]', lastApiError); return null; }
     const body = { model: settings.apiModel, messages, max_tokens: opts.maxTokens || 1200, temperature: opts.temperature ?? 0.7, stream: false };
     try {
         const r = await fetch(settings.apiEndpoint, {
@@ -173,16 +176,28 @@ async function callExternalAPI(messages, opts = {}) {
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${settings.apiKey}`, 'HTTP-Referer': 'https://github.com/SillyTavern/SillyTavern', 'X-Title': 'Dandeleon Multiverse' },
             body: JSON.stringify(body)
         });
-        if (!r.ok) { console.warn(`[Multiverse] API ${r.status}: ${(await r.text().catch(() => '')).slice(0, 200)}`); return null; }
+        if (!r.ok) {
+            const t = (await r.text().catch(() => '')).slice(0, 300);
+            lastApiError = `HTTP ${r.status}${t ? ': ' + t : ''}`;
+            console.warn('[Multiverse]', lastApiError);
+            return null;
+        }
         const d = await r.json();
-        return d?.choices?.[0]?.message?.content || d?.choices?.[0]?.text || d?.output_text || '';
-    } catch (e) { console.warn('[Multiverse] API failed:', e); return null; }
+        const text = d?.choices?.[0]?.message?.content || d?.choices?.[0]?.text || d?.output_text || '';
+        if (!text) { lastApiError = 'Provider replied but with no text — check the model name.'; console.warn('[Multiverse]', lastApiError, d); }
+        return text;
+    } catch (e) {
+        lastApiError = `Network/CORS error: ${e.message} — the provider may block direct browser calls.`;
+        console.warn('[Multiverse]', lastApiError);
+        return null;
+    }
 }
 
 async function testExternalAPI() {
     try {
         const r = await callExternalAPI([{ role: 'user', content: 'Reply with exactly: ok' }], { maxTokens: 10, temperature: 0 });
-        return (r && r.toLowerCase().includes('ok')) ? { ok: true } : { ok: false, error: r || 'Empty response' };
+        if (r && r.toLowerCase().includes('ok')) return { ok: true };
+        return { ok: false, error: lastApiError || (r === '' ? 'Empty reply from provider' : `Unexpected reply: ${r}`) };
     } catch (e) { return { ok: false, error: e.message }; }
 }
 
