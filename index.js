@@ -527,11 +527,15 @@ async function chatWithDM(message) {
     v.dmChat.push({ role: 'user', content: message.trim() });
     saveSettings();
     renderDMChat();
+    const recent = getRecentMessages(settings.messageDepth);
     const sys = `${getPrompt('worldkeeper')}
 
 UNIVERSE: "${v.name}"
 PREMISE: ${v.premise || '(none)'}
-CANON TIMELINE:\n${v.timeline || '(empty)'}\n\nSCENE: ${v.scene.location || '?'} — ${v.scene.weather || '?'}; present: ${v.cast.filter(c => c.present).map(c => c.name).join(', ') || 'no one'}.`;
+CANON TIMELINE:\n${v.timeline || '(empty)'}\n\nSCENE: ${v.scene.location || '?'} — ${v.scene.weather || '?'}; present: ${v.cast.filter(c => c.present).map(c => c.name).join(', ') || 'no one'}.
+
+CURRENT ROLEPLAY (live conversation between the user and their scene partner — this is what's happening right now):
+${recent.join('\n') || '(nothing yet)'}`;
     const history = v.dmChat.slice(-12).map(m => ({ role: m.role, content: m.content }));
     setProcessing(true);
     try {
@@ -747,7 +751,7 @@ function injectPanelUI() {
 
                 <!-- World-keeper chat -->
                 <div class="dmv-section">
-                    <label>Talk to the World-Keeper</label>
+                    <div class="dmv-row-between"><label>Talk to the World-Keeper</label><span class="dmv-clear" id="dmv-dm-clear" title="Clear chat">🗑 clear</span></div>
                     <div id="dmv-dmchat" class="dmv-dmchat"></div>
                     <div class="dmv-btn-row"><input type="text" id="dmv-dm-input" placeholder="Set up the world, hand it backstory…" style="flex:1;"><button class="dmv-btn dmv-btn-primary" id="dmv-dm-send">Send</button></div>
                 </div>
@@ -801,6 +805,7 @@ function bindPanelEvents() {
     bind('dmv-sum-depth', 'change', () => { const v = getActiveVerse(); if (v) { v.summaryDepth = parseInt(val('dmv-sum-depth')) || 10; saveSettings(); injectVerse(); } });
 
     bind('dmv-dm-send', 'click', sendDM);
+    bind('dmv-dm-clear', 'click', clearDMChat);
     bind('dmv-dm-input', 'keydown', e => { if (e.key === 'Enter') sendDM(); });
 
     bind('dmv-api-provider', 'change', e => {
@@ -832,6 +837,15 @@ function sendDM() {
     const input = document.getElementById('dmv-dm-input');
     if (!input || !input.value.trim()) return;
     const m = input.value; input.value = ''; chatWithDM(m);
+}
+
+function clearDMChat() {
+    const v = getActiveVerse();
+    if (!v) return;
+    if (v.dmChat.length && !confirm('Clear the world-keeper chat? (Your canon, timeline, and cast are untouched.)')) return;
+    v.dmChat = [];
+    saveSettings();
+    renderDMChat();
 }
 
 // =============================================================================

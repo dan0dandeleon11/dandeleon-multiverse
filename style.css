@@ -201,6 +201,10 @@
 
 .dmv-empty { font-size: 12px; opacity: 0.5; padding: 8px; text-align: center; }
 
+.dmv-row-between { display: flex; align-items: center; justify-content: space-between; }
+.dmv-clear { cursor: pointer; font-size: 11px; opacity: 0.6; }
+.dmv-clear:hover { opacity: 1; color: #e74c3c; }
+
 /* Cast roster */
 .dmv-castcard {
     background: var(--dmv-field); border: 1px solid var(--dmv-border);
