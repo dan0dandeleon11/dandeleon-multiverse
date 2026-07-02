@@ -46,7 +46,7 @@ const DEFAULT_SETTINGS = {
     apiEndpoint: 'https://openrouter.ai/api/v1/chat/completions',
     apiKey: '',
     apiModel: 'moonshotai/kimi-k2',
-    prompts: { dm: '', worldkeeper: '', summary: '' },
+    prompts: { dm: '', worldkeeper: '', summary: '', suggest: '', simulate: '', editProtocol: '' },
     verseLibrary: {}
 };
 
@@ -86,6 +86,7 @@ let settings = { ...DEFAULT_SETTINGS };
 let isRunning = false;
 let fallbackChatData = null;
 let lastApiError = '';
+let lastCallLog = '';
 let uidCounter = 0;
 let initialized = false;
 function uid(p) { return p + Date.now().toString(36) + (uidCounter++); }
@@ -140,7 +141,7 @@ function loadSettings() {
     if (loaded) {
         settings = { ...DEFAULT_SETTINGS, ...loaded };
         if (!settings.verseLibrary) settings.verseLibrary = {};
-        if (!settings.prompts) settings.prompts = { dm: '', worldkeeper: '', summary: '' };
+        settings.prompts = { dm: '', worldkeeper: '', summary: '', suggest: '', simulate: '', editProtocol: '', ...(settings.prompts || {}) };
     }
 }
 
@@ -225,6 +226,7 @@ async function callExternalAPI(messages, opts = {}) {
     if (!settings.apiKey) { lastApiError = 'No API key — open ⚙ Change LLM, paste your key, hit Save.'; console.warn('[Multiverse]', lastApiError); return null; }
     if (!settings.apiEndpoint) { lastApiError = 'No endpoint set.'; console.warn('[Multiverse]', lastApiError); return null; }
     const body = { model: settings.apiModel, messages, max_tokens: opts.maxTokens || 1200, temperature: opts.temperature ?? 0.7, stream: false };
+    lastCallLog = messages.map(m => `[${m.role.toUpperCase()}]\n${m.content}`).join('\n\n──────────\n\n');
     try {
         const r = await fetch(settings.apiEndpoint, {
             method: 'POST',
@@ -353,10 +355,36 @@ const WK_SYSTEM_DEFAULT = `You are the WORLD-KEEPER for this roleplay universe. 
 
 const SUMMARY_SYSTEM_DEFAULT = `You compress a roleplay history into concise background prose for the scene partner. Write in SECOND PERSON ("You..."). A tight paragraph or two. Only established/past facts. Output the prose only.`;
 
+const SUGGEST_SYSTEM_DEFAULT = `You propose fresh {kind} for a roleplay world. Return ONLY a JSON array of exactly 3 objects: [{"name":"","note":"one short evocative line"}]. No prose.`;
+
+const SIM_SYSTEM_DEFAULT = `You simulate what BACKGROUND characters are autonomously doing right now, off-screen, consistent with the world and premise. Return ONLY a JSON array: [{"name":"","auto":"one short line of what they're doing/saying"}]. No prose.`;
+
+// Every prompt the extension sends — all user-editable, all inspectable.
+const PROMPT_FIELDS = [
+    { key: 'dm',           label: 'DM / world engine (system)',                       rows: 7 },
+    { key: 'worldkeeper',  label: 'World-keeper chat (system)',                       rows: 4 },
+    { key: 'editProtocol', label: 'World-keeper edit protocol (appended to above)',   rows: 5 },
+    { key: 'summary',      label: 'Summary condenser (system)',                       rows: 3 },
+    { key: 'suggest',      label: 'Suggest locations/people — {kind} = which',        rows: 3 },
+    { key: 'simulate',     label: 'Autonomous background characters (system)',        rows: 3 },
+];
+
+function getPromptDefault(key) {
+    switch (key) {
+        case 'dm': return DM_SYSTEM;
+        case 'worldkeeper': return WK_SYSTEM_DEFAULT;
+        case 'summary': return SUMMARY_SYSTEM_DEFAULT;
+        case 'suggest': return SUGGEST_SYSTEM_DEFAULT;
+        case 'simulate': return SIM_SYSTEM_DEFAULT;
+        case 'editProtocol': return EDIT_PROTOCOL;
+        default: return '';
+    }
+}
+
 function getPrompt(key) {
     const o = settings.prompts && settings.prompts[key];
     if (o && o.trim()) return o.trim();
-    return key === 'dm' ? DM_SYSTEM : key === 'worldkeeper' ? WK_SYSTEM_DEFAULT : SUMMARY_SYSTEM_DEFAULT;
+    return getPromptDefault(key);
 }
 
 function getRecentMessages(depth) {
@@ -509,7 +537,7 @@ async function suggestOptions(kind) {
             ? v.world.locations.map(l => l.name).join(', ')
             : v.cast.map(c => c.name).join(', ');
         const raw = await callExternalAPI([
-            { role: 'system', content: `You propose fresh ${kind} for a roleplay world. Return ONLY a JSON array of exactly 3 objects: [{"name":"","note":"one short evocative line"}]. No prose.` },
+            { role: 'system', content: getPrompt('suggest').replace(/\{kind\}/g, kind) },
             { role: 'user', content: `VERSE: ${v.name}\nLocation/scene: ${v.scene.location || '?'}\nAlready known: ${known || '(none)'}\n\nPropose 3 new ${kind} that fit this world.` }
         ], { maxTokens: 400, temperature: 0.9 });
         let arr = extractJSON(raw);
@@ -687,7 +715,7 @@ ${recent.join('\n') || '(nothing yet)'}`;
     isRunning = true;
     setProcessing(true);
     try {
-        const reply = await callExternalAPI([{ role: 'system', content: sys + '\n\n' + EDIT_PROTOCOL }, ...history], { maxTokens: 1200, temperature: 0.7 });
+        const reply = await callExternalAPI([{ role: 'system', content: sys + '\n\n' + getPrompt('editProtocol') }, ...history], { maxTokens: 1200, temperature: 0.7 });
         if (!reply || !reply.trim()) { notify(lastApiError || 'World-keeper call failed.'); return; }
         if (getActiveVerse()?.id !== startId) return;
         let display = reply.trim();
@@ -722,7 +750,7 @@ async function simulateBackground() {
     setProcessing(true);
     try {
         const raw = await callExternalAPI([
-            { role: 'system', content: `You simulate what BACKGROUND characters are autonomously doing right now, off-screen, consistent with the world and premise. Return ONLY a JSON array: [{"name":"","auto":"one short line of what they're doing/saying"}]. No prose.` },
+            { role: 'system', content: getPrompt('simulate') },
             { role: 'user', content: `VERSE: ${v.name}\nPREMISE: ${v.premise || '(none)'}\nSCENE: ${v.scene.location || '?'}, ${v.scene.weather || '?'}\nBACKGROUND CHARACTERS: ${targets.map(c => c.name).join(', ')}\n\nWhat is each of them doing right now?` }
         ], { maxTokens: 400, temperature: 0.8 });
         let arr = extractJSON(raw);
@@ -901,16 +929,16 @@ function injectPanelUI() {
                     <textarea id="dmv-locations" rows="3" placeholder="Great Hall&#10;Slytherin Common Room"></textarea>
                 </div>
 
-                <!-- Edit prompts (advanced) -->
+                <!-- Edit prompts (advanced) — every prompt shown in full, editable, resettable -->
                 <div class="dmv-section">
                     <label class="dmv-collapse" id="dmv-prompts-toggle">⚙ Edit prompts (advanced)</label>
                     <div id="dmv-prompts" class="dmv-prompts">
-                        <div class="dmv-sub2">DM / world engine</div>
-                        <textarea id="dmv-prompt-dm" rows="4" placeholder="(blank = built-in default)"></textarea>
-                        <div class="dmv-sub2">World-keeper chat</div>
-                        <textarea id="dmv-prompt-wk" rows="3" placeholder="(blank = built-in default)"></textarea>
-                        <div class="dmv-sub2">Summary instruction</div>
-                        <textarea id="dmv-prompt-sum" rows="2" placeholder="(blank = built-in default)"></textarea>
+                        <div class="dmv-note">These are the ACTUAL prompts sent to the external LLM. Edit in place; ↺ restores the built-in default.</div>
+                        ${PROMPT_FIELDS.map(f => `
+                        <div class="dmv-prompt-head"><span class="dmv-sub2">${f.label}</span><button class="dmv-btn dmv-btn-icon dmv-prompt-reset" data-key="${f.key}" title="Reset to default">↺</button></div>
+                        <textarea id="dmv-prompt-${f.key}" data-key="${f.key}" class="dmv-prompt-ta" rows="${f.rows}"></textarea>`).join('')}
+                        <div class="dmv-prompt-head"><span class="dmv-sub2">🔍 Last API call — the exact payload that went out</span><button class="dmv-btn dmv-btn-icon" id="dmv-show-lastcall" title="Show/hide">👁</button></div>
+                        <textarea id="dmv-lastcall" rows="10" readonly style="display:none;"></textarea>
                     </div>
                 </div>
 
@@ -956,9 +984,30 @@ function bindPanelEvents() {
     bind('dmv-char-cadence', 'change', () => { const v = getActiveVerse(); if (v) { v.charCadence = numOr('dmv-char-cadence', 3); saveSettings(); } });
 
     bind('dmv-prompts-toggle', 'click', () => document.getElementById('dmv-prompts')?.classList.toggle('dmv-visible'));
-    bind('dmv-prompt-dm', 'input', debounce(() => { settings.prompts.dm = val('dmv-prompt-dm'); saveSettings(); }, 600));
-    bind('dmv-prompt-wk', 'input', debounce(() => { settings.prompts.worldkeeper = val('dmv-prompt-wk'); saveSettings(); }, 600));
-    bind('dmv-prompt-sum', 'input', debounce(() => { settings.prompts.summary = val('dmv-prompt-sum'); saveSettings(); }, 600));
+    document.querySelectorAll('.dmv-prompt-ta').forEach(ta => {
+        ta.addEventListener('input', debounce(() => {
+            const k = ta.dataset.key;
+            // Storing '' when the text matches the default keeps future default improvements flowing through
+            settings.prompts[k] = (ta.value.trim() === getPromptDefault(k).trim()) ? '' : ta.value;
+            saveSettings();
+        }, 600));
+    });
+    document.querySelectorAll('.dmv-prompt-reset').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const k = btn.dataset.key;
+            settings.prompts[k] = '';
+            saveSettings();
+            const ta = document.getElementById('dmv-prompt-' + k);
+            if (ta) ta.value = getPromptDefault(k);
+        });
+    });
+    bind('dmv-show-lastcall', 'click', () => {
+        const ta = document.getElementById('dmv-lastcall');
+        if (!ta) return;
+        const show = ta.style.display === 'none';
+        ta.style.display = show ? '' : 'none';
+        if (show) ta.value = lastCallLog || '(no API call made yet this session)';
+    });
 
     bind('dmv-timeline', 'input', debounce(() => { const v = getActiveVerse(); if (v) { v.timeline = val('dmv-timeline'); saveSettings(); injectVerse(); } }, 600));
     bind('dmv-summary', 'input', debounce(() => { const v = getActiveVerse(); if (v) { v.summary = val('dmv-summary'); saveSettings(); injectVerse(); } }, 600));
@@ -1077,9 +1126,7 @@ function updateUI() {
         setVal('dmv-premise-depth', v.premiseDepth);
         setVal('dmv-char-cadence', v.charCadence);
         const autoCb = document.getElementById('dmv-autonomous'); if (autoCb) autoCb.checked = !!v.autonomousChars;
-        setVal('dmv-prompt-dm', settings.prompts?.dm || '');
-        setVal('dmv-prompt-wk', settings.prompts?.worldkeeper || '');
-        setVal('dmv-prompt-sum', settings.prompts?.summary || '');
+        for (const f of PROMPT_FIELDS) setVal('dmv-prompt-' + f.key, getPrompt(f.key));
         updateSceneDisplay();
         updateProseDisplay();
         renderOptions();

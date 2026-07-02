@@ -229,7 +229,9 @@
 .dmv-prompts { display: none; flex-direction: column; gap: 6px; margin-top: 6px; }
 .dmv-prompts.dmv-visible { display: flex; }
 .dmv-sub2 { font-size: 11px; opacity: 0.7; }
-#dmv-prompt-dm, #dmv-prompt-wk, #dmv-prompt-sum { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+.dmv-prompt-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; }
+.dmv-prompt-ta, #dmv-lastcall { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+#dmv-lastcall { opacity: 0.85; }
 
 @media (min-width: 1001px) { #dmv-fab { bottom: 80px; } }
 
